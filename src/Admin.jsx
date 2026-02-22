@@ -32,19 +32,20 @@ const getAppUrl = () => {
 };
 
 // ─── EMAIL TEMPLATES ────────────────────────────────────────────
-const EMAIL_TEMPLATES = [
+// Placeholders: {{name}}, {{company}}, {{link}}
+const DEFAULT_EMAIL_TEMPLATES = [
   {
     id: "intro",
     name: "Ersteinladung",
     subject: "Ihre persönliche Einladung zum GuideTranslator Kalkulator",
-    body: (contact, link) => `Sehr geehrte/r ${contact.name},
+    bodyTemplate: `Sehr geehrte/r {{name}},
 
 vielen Dank für Ihr Interesse an GuideTranslator — der KI-gestützten Echtzeit-Übersetzungslösung für Kreuzfahrt-Landausflüge.
 
-Wir haben für Sie einen persönlichen Zugang zu unserem Enterprise-Kalkulator eingerichtet, mit dem Sie die konkreten Einsparungen für ${contact.company} berechnen können.
+Wir haben für Sie einen persönlichen Zugang zu unserem Enterprise-Kalkulator eingerichtet, mit dem Sie die konkreten Einsparungen für {{company}} berechnen können.
 
 Ihr persönlicher Link:
-${link}
+{{link}}
 
 Bitte klicken Sie auf den Link, prüfen Sie Ihre Daten und vergeben Sie ein Passwort. Danach können Sie direkt Ihre individuelle Kostenanalyse erstellen.
 
@@ -54,19 +55,20 @@ Mit freundlichen Grüßen
 Ulrich Deibel
 GuideTranslator Enterprise
 enterprise@guidetranslator.com`,
+    isDefault: true,
   },
   {
     id: "followup",
     name: "Nachfass / Follow-up",
     subject: "Haben Sie schon Ihre Einsparung berechnet?",
-    body: (contact, link) => `Sehr geehrte/r ${contact.name},
+    bodyTemplate: `Sehr geehrte/r {{name}},
 
 vor kurzem haben wir Ihnen Ihren persönlichen Zugang zum GuideTranslator Enterprise-Kalkulator eingerichtet. Wir möchten sicherstellen, dass alles funktioniert und Sie Ihre individuelle Kostenanalyse erstellen konnten.
 
 Falls Sie noch nicht dazu gekommen sind — hier nochmals Ihr persönlicher Link:
-${link}
+{{link}}
 
-Unsere Kunden sparen durchschnittlich über 90% gegenüber traditionellen Guide-Kosten. Gerne gehen wir die Ergebnisse gemeinsam durch und erstellen ein maßgeschneidertes Angebot für ${contact.company}.
+Unsere Kunden sparen durchschnittlich über 90% gegenüber traditionellen Guide-Kosten. Gerne gehen wir die Ergebnisse gemeinsam durch und erstellen ein maßgeschneidertes Angebot für {{company}}.
 
 Wann hätten Sie Zeit für ein 15-minütiges Gespräch?
 
@@ -74,17 +76,18 @@ Beste Grüße
 Ulrich Deibel
 GuideTranslator Enterprise
 enterprise@guidetranslator.com`,
+    isDefault: true,
   },
   {
     id: "demo",
     name: "Demo-Einladung",
-    subject: "Live-Demo: GuideTranslator für ${company}",
-    body: (contact, link) => `Sehr geehrte/r ${contact.name},
+    subject: "Live-Demo: GuideTranslator für {{company}}",
+    bodyTemplate: `Sehr geehrte/r {{name}},
 
-wir würden Ihnen gerne in einer kurzen Live-Demo zeigen, wie GuideTranslator die Sprachbarriere bei Landausflügen für ${contact.company} lösen kann.
+wir würden Ihnen gerne in einer kurzen Live-Demo zeigen, wie GuideTranslator die Sprachbarriere bei Landausflügen für {{company}} lösen kann.
 
 Vorab können Sie bereits Ihre individuelle Kostenanalyse erstellen:
-${link}
+{{link}}
 
 In der Demo zeigen wir Ihnen:
 • Live-Übersetzung in 130+ Sprachen mit nur einem Guide
@@ -98,8 +101,33 @@ Mit freundlichen Grüßen
 Ulrich Deibel
 GuideTranslator Enterprise
 enterprise@guidetranslator.com`,
+    isDefault: true,
   },
 ];
+
+const TEMPLATES_STORAGE_KEY = "gt_admin_email_templates";
+
+function loadCustomTemplates() {
+  try {
+    const stored = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function saveCustomTemplates(templates) {
+  localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+}
+
+function getAllTemplates() {
+  return [...DEFAULT_EMAIL_TEMPLATES, ...loadCustomTemplates()];
+}
+
+function renderTemplate(bodyTemplate, contact, link) {
+  return bodyTemplate
+    .replace(/\{\{name\}\}/g, contact.name || "")
+    .replace(/\{\{company\}\}/g, contact.company || "Ihr Unternehmen")
+    .replace(/\{\{link\}\}/g, link);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ADMIN COMPONENT
@@ -722,19 +750,28 @@ function ActivityLog({ leads, onSelect }) {
 // EMAIL MODAL
 // ═══════════════════════════════════════════════════════════════
 function EmailModal({ lead, onClose }) {
-  const [selectedTemplate, setSelectedTemplate] = useState(EMAIL_TEMPLATES[0].id);
-  const [copied, setCopied] = useState(null); // "subject" | "body" | null
+  const [templates, setTemplates] = useState(getAllTemplates);
+  const [selectedTemplate, setSelectedTemplate] = useState(templates[0]?.id);
+  const [copied, setCopied] = useState(null);
+  const [editing, setEditing] = useState(null); // template being edited
+  const [editForm, setEditForm] = useState({ name: "", subject: "", bodyTemplate: "" });
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   if (!lead) return null;
 
-  // Generate invite link if not present
+  const refreshTemplates = () => {
+    const all = getAllTemplates();
+    setTemplates(all);
+    return all;
+  };
+
   const inviteLink = lead.invite_token
     ? `${getAppUrl()}/?invite=${lead.invite_token}`
     : "(Bitte zuerst einen Einladungslink generieren)";
 
-  const template = EMAIL_TEMPLATES.find(t => t.id === selectedTemplate);
-  const subject = template.subject.replace("${company}", lead.company || "Ihr Unternehmen");
-  const body = template.body(lead, inviteLink);
+  const template = templates.find(t => t.id === selectedTemplate) || templates[0];
+  const subject = renderTemplate(template?.subject || "", lead, inviteLink);
+  const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
 
   const copyToClipboard = async (text, type) => {
     await navigator.clipboard.writeText(text);
@@ -745,6 +782,108 @@ function EmailModal({ lead, onClose }) {
   const openMailto = () => {
     window.open(`mailto:${lead.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
   };
+
+  const handleDuplicate = (tmpl) => {
+    const custom = loadCustomTemplates();
+    const newTmpl = {
+      id: `custom_${Date.now()}`,
+      name: `${tmpl.name} (Kopie)`,
+      subject: tmpl.subject,
+      bodyTemplate: tmpl.bodyTemplate,
+      isDefault: false,
+    };
+    custom.push(newTmpl);
+    saveCustomTemplates(custom);
+    const all = refreshTemplates();
+    setSelectedTemplate(newTmpl.id);
+  };
+
+  const handleStartEdit = (tmpl) => {
+    setEditForm({ name: tmpl.name, subject: tmpl.subject, bodyTemplate: tmpl.bodyTemplate });
+    setEditing(tmpl.id);
+  };
+
+  const handleSaveEdit = () => {
+    const custom = loadCustomTemplates().map(t =>
+      t.id === editing ? { ...t, name: editForm.name, subject: editForm.subject, bodyTemplate: editForm.bodyTemplate } : t
+    );
+    saveCustomTemplates(custom);
+    refreshTemplates();
+    setEditing(null);
+  };
+
+  const handleDelete = (id) => {
+    const custom = loadCustomTemplates().filter(t => t.id !== id);
+    saveCustomTemplates(custom);
+    const all = refreshTemplates();
+    if (selectedTemplate === id) setSelectedTemplate(all[0]?.id);
+    setConfirmDelete(null);
+  };
+
+  const handleNewBlank = () => {
+    const custom = loadCustomTemplates();
+    const newTmpl = {
+      id: `custom_${Date.now()}`,
+      name: "Neue Vorlage",
+      subject: "Betreff hier eingeben",
+      bodyTemplate: `Sehr geehrte/r {{name}},\n\n[Ihr Text hier]\n\nIhr persönlicher Link:\n{{link}}\n\nMit freundlichen Grüßen\nUlrich Deibel\nGuideTranslator Enterprise\nenterprise@guidetranslator.com`,
+      isDefault: false,
+    };
+    custom.push(newTmpl);
+    saveCustomTemplates(custom);
+    refreshTemplates();
+    setSelectedTemplate(newTmpl.id);
+    handleStartEdit(newTmpl);
+  };
+
+  // Edit mode
+  if (editing) {
+    return (
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.7)", zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 24,
+      }} onClick={() => setEditing(null)}>
+        <div style={{
+          background: T.navyLight, borderRadius: 20, padding: 32, border: `1px solid ${T.navyMid}`,
+          maxWidth: 700, width: "100%", maxHeight: "90vh", overflow: "auto",
+        }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <h3 style={{ fontFamily: font, fontSize: 22, fontWeight: 700 }}>Vorlage <span style={{ color: T.gold }}>bearbeiten</span></h3>
+            <button onClick={() => setEditing(null)} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 24, cursor: "pointer" }}>×</button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, display: "block" }}>Name der Vorlage</label>
+              <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, display: "block" }}>Betreff</label>
+              <input value={editForm.subject} onChange={e => setEditForm(f => ({ ...f, subject: e.target.value }))} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }} />
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1 }}>Nachricht</label>
+                <span style={{ fontSize: 11, color: T.gray }}>Platzhalter: {"{{name}}"} {"{{company}}"} {"{{link}}"}</span>
+              </div>
+              <textarea value={editForm.bodyTemplate} onChange={e => setEditForm(f => ({ ...f, bodyTemplate: e.target.value }))} rows={14} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "12px 14px", color: T.whiteTrue, fontSize: 13, fontFamily: fontSans, lineHeight: 1.6, resize: "vertical" }} />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 20 }}>
+            <button onClick={() => setEditing(null)} style={{ background: T.navyMid, color: T.grayLight, border: `1px solid ${T.navyMid}`, padding: "10px 20px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>Abbrechen</button>
+            <button onClick={handleSaveEdit} style={{
+              background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+              color: T.navy, border: "none", padding: "10px 20px", borderRadius: 10,
+              fontSize: 14, fontWeight: 700, cursor: "pointer",
+            }}>Speichern</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -764,17 +903,48 @@ function EmailModal({ lead, onClose }) {
 
         {/* Template Selection */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, display: "block" }}>Vorlage wählen</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {EMAIL_TEMPLATES.map(t => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1 }}>Vorlage wählen</label>
+            <button onClick={handleNewBlank} style={{ background: "transparent", border: `1px solid ${T.gold}30`, color: T.gold, padding: "4px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>+ Neue Vorlage</button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {templates.map(t => (
               <button key={t.id} onClick={() => setSelectedTemplate(t.id)} style={{
                 padding: "8px 16px", borderRadius: 10, cursor: "pointer",
                 background: selectedTemplate === t.id ? `${T.gold}15` : T.navyMid,
                 border: selectedTemplate === t.id ? `1px solid ${T.gold}50` : `1px solid transparent`,
                 color: selectedTemplate === t.id ? T.gold : T.grayLight, fontSize: 13,
-              }}>{t.name}</button>
+              }}>{t.name}{!t.isDefault && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.6 }}>*</span>}</button>
             ))}
           </div>
+        </div>
+
+        {/* Template Actions */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <button onClick={() => handleDuplicate(template)} style={{
+            background: T.navyMid, border: `1px solid ${T.navyMid}`, color: T.grayLight,
+            padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>Duplizieren</button>
+          {!template.isDefault && (
+            <>
+              <button onClick={() => handleStartEdit(template)} style={{
+                background: T.navyMid, border: `1px solid ${T.seaLight}30`, color: T.seaLight,
+                padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+              }}>Bearbeiten</button>
+              {confirmDelete === template.id ? (
+                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: T.red }}>Wirklich?</span>
+                  <button onClick={() => handleDelete(template.id)} style={{ background: `${T.red}20`, border: `1px solid ${T.red}50`, color: T.red, padding: "5px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Ja</button>
+                  <button onClick={() => setConfirmDelete(null)} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, color: T.grayLight, padding: "5px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Nein</button>
+                </span>
+              ) : (
+                <button onClick={() => setConfirmDelete(template.id)} style={{
+                  background: T.navyMid, border: `1px solid ${T.red}20`, color: T.red,
+                  padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer", opacity: 0.8,
+                }}>Löschen</button>
+              )}
+            </>
+          )}
         </div>
 
         {/* Subject */}
