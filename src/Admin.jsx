@@ -129,6 +129,64 @@ function renderTemplate(bodyTemplate, contact, link) {
     .replace(/\{\{link\}\}/g, link);
 }
 
+// ─── PIPELINE STAGES ─────────────────────────────────────────
+const PIPELINE_STAGES = [
+  { id: "neu",          label: "Neu",            color: T.gray },
+  { id: "eingeladen",   label: "Eingeladen",     color: T.gold },
+  { id: "registriert",  label: "Registriert",    color: T.seaLight },
+  { id: "kalkulation",  label: "Kalkulation",    color: T.goldLight },
+  { id: "demo",         label: "Demo geplant",   color: "#9b59b6" },
+  { id: "angebot",      label: "Angebot",        color: T.sea },
+  { id: "verhandlung",  label: "Verhandlung",    color: "#e67e22" },
+  { id: "gewonnen",     label: "Gewonnen",       color: T.green },
+  { id: "verloren",     label: "Verloren",       color: T.red },
+];
+const PIPELINE_MAP = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, s]));
+
+// ─── NOTE TYPES ──────────────────────────────────────────────
+const NOTE_TYPES = [
+  { id: "note",    label: "Notiz",    icon: "📝" },
+  { id: "call",    label: "Anruf",    icon: "📞" },
+  { id: "email",   label: "E-Mail",   icon: "✉" },
+  { id: "meeting", label: "Meeting",  icon: "🤝" },
+];
+
+// ─── FOLLOW-UP HELPERS ───────────────────────────────────────
+const FOLLOW_UP_PRESETS = [
+  { label: "Morgen",         days: 1 },
+  { label: "In 3 Tagen",    days: 3 },
+  { label: "Nächste Woche",  days: 7 },
+  { label: "In 2 Wochen",   days: 14 },
+];
+
+const addDays = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(9, 0, 0, 0);
+  return d.toISOString();
+};
+
+const isOverdue = (dateStr) => {
+  if (!dateStr) return false;
+  return new Date(dateStr) < new Date();
+};
+
+const fmtFollowUp = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return `${Math.abs(diffDays)} Tag(e) überfällig`;
+  if (diffDays === 0) return "Heute";
+  if (diffDays === 1) return "Morgen";
+  return `In ${diffDays} Tagen`;
+};
+
+// ─── TAG PRESETS ─────────────────────────────────────────────
+const TAG_PRESETS = ["VIP", "Pilot-Kandidat", "AIDA", "TUI", "MSC", "Royal Caribbean", "Viking", "Hurtigruten", "Warm Lead", "Kalt"];
+const TAG_COLORS = { "VIP": T.gold, "Pilot-Kandidat": T.green, "Warm Lead": "#e67e22", "Kalt": T.sea };
+const getTagColor = (tag) => TAG_COLORS[tag] || T.seaLight;
+
 // ═══════════════════════════════════════════════════════════════
 // ADMIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
@@ -279,13 +337,13 @@ function AdminDashboard({ onBack }) {
         ) : (
           <>
             {/* Stats Bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 32 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 }}>
               {[
                 { label: "Kontakte gesamt", value: leads.length, color: T.gold },
-                { label: "Registriert", value: leads.filter(l => l.status === "registered" || l.password).length, color: T.green },
-                { label: "Eingeladen", value: leads.filter(l => l.invite_token && !l.password).length, color: T.seaLight },
-                { label: "Kalkulationen", value: leads.reduce((s, l) => s + (l.calc_count || 0), 0), color: T.goldLight },
-                { label: "Angebote angefragt", value: leads.filter(l => l.status === "request_sent").length, color: T.green },
+                { label: "Aktive Pipeline", value: leads.filter(l => !["gewonnen", "verloren"].includes(l.pipeline_stage)).length, color: T.seaLight },
+                { label: "Demo/Angebot", value: leads.filter(l => ["demo", "angebot", "verhandlung"].includes(l.pipeline_stage)).length, color: T.goldLight },
+                { label: "Gewonnen", value: leads.filter(l => l.pipeline_stage === "gewonnen").length, color: T.green },
+                { label: "Kalkulationen", value: leads.reduce((s, l) => s + (l.calc_count || 0), 0), color: T.gold },
               ].map((s, i) => (
                 <div key={i} style={{ background: T.navyLight, borderRadius: 12, padding: "16px 20px", border: `1px solid ${T.navyMid}` }}>
                   <div style={{ fontSize: 11, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{s.label}</div>
@@ -293,6 +351,35 @@ function AdminDashboard({ onBack }) {
                 </div>
               ))}
             </div>
+
+            {/* Overdue Follow-ups Banner */}
+            {(() => {
+              const overdue = leads.filter(l => l.follow_up_date && isOverdue(l.follow_up_date));
+              const upcoming = leads.filter(l => l.follow_up_date && !isOverdue(l.follow_up_date));
+              if (!overdue.length && !upcoming.length) return null;
+              return (
+                <div style={{
+                  background: overdue.length ? `${T.red}08` : `${T.gold}08`,
+                  border: `1px solid ${overdue.length ? T.red : T.gold}20`,
+                  borderRadius: 12, padding: "16px 20px", marginBottom: 24,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: overdue.length ? 8 : 0, color: overdue.length ? T.red : T.gold }}>
+                    {overdue.length ? `⚠ ${overdue.length} überfällige Wiedervorlage(n)` : ""}
+                    {overdue.length && upcoming.length ? " · " : ""}
+                    {upcoming.length ? `📅 ${upcoming.length} anstehend` : ""}
+                  </div>
+                  {overdue.map(l => (
+                    <div key={l.id} onClick={() => { setTab("contacts"); setSelectedLead(l); }} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "8px 12px", background: T.navyMid, borderRadius: 8, marginBottom: 4, cursor: "pointer",
+                    }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{l.name} <span style={{ color: T.gray, fontWeight: 400 }}>— {l.company}</span></span>
+                      <span style={{ fontSize: 12, color: T.red }}>{fmtFollowUp(l.follow_up_date)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {tab === "contacts" && !selectedLead && !showAddForm && (
               <ContactsList leads={leads} onSelect={setSelectedLead} onAdd={() => setShowAddForm(true)} onEmail={setShowEmailModal} refresh={refresh} />
@@ -321,11 +408,20 @@ function AdminDashboard({ onBack }) {
 // ═══════════════════════════════════════════════════════════════
 function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
   const [search, setSearch] = useState("");
+  const [filterStage, setFilterStage] = useState("");
+  const [filterTag, setFilterTag] = useState("");
+  const [filterFollowUp, setFilterFollowUp] = useState("");
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [copiedId, setCopiedId] = useState(null);
 
-  const filtered = leads.filter(l =>
-    !search || [l.name, l.email, l.company].some(v => v && v.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = leads.filter(l => {
+    if (search && ![l.name, l.email, l.company].some(v => v && v.toLowerCase().includes(search.toLowerCase()))) return false;
+    if (filterStage && l.pipeline_stage !== filterStage) return false;
+    if (filterTag && !(l.tags || []).includes(filterTag)) return false;
+    if (filterFollowUp === "overdue" && !(l.follow_up_date && isOverdue(l.follow_up_date))) return false;
+    if (filterFollowUp === "upcoming" && !(l.follow_up_date && !isOverdue(l.follow_up_date))) return false;
+    return true;
+  });
 
   const copyLink = async (lead) => {
     if (!lead.invite_token) return;
@@ -342,15 +438,15 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
   };
 
   const statusBadge = (lead) => {
-    if (lead.status === "request_sent") return { label: "Angebot", color: T.green };
-    if (lead.password || lead.status === "registered") return { label: "Registriert", color: T.seaLight };
-    if (lead.invite_token) return { label: "Eingeladen", color: T.gold };
-    return { label: "Neu", color: T.gray };
+    const stage = PIPELINE_MAP[lead.pipeline_stage] || PIPELINE_STAGES[0];
+    return { label: stage.label, color: stage.color };
   };
+
+  const hasFilters = filterStage || filterTag || filterFollowUp;
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         <h2 style={{ fontFamily: font, fontSize: 24, fontWeight: 700 }}>Kontakte</h2>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <input
@@ -367,13 +463,58 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
         </div>
       </div>
 
+      {/* Filter Bar */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterStage} onChange={e => setFilterStage(e.target.value)} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "6px 12px", color: T.grayLight, fontSize: 12 }}>
+          <option value="">Alle Stufen</option>
+          {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <select value={filterTag} onChange={e => setFilterTag(e.target.value)} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "6px 12px", color: T.grayLight, fontSize: 12 }}>
+          <option value="">Alle Tags</option>
+          {TAG_PRESETS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filterFollowUp} onChange={e => setFilterFollowUp(e.target.value)} style={{ background: T.navyMid, border: `1px solid ${filterFollowUp === "overdue" ? T.red : T.navyMid}`, borderRadius: 8, padding: "6px 12px", color: filterFollowUp === "overdue" ? T.red : T.grayLight, fontSize: 12 }}>
+          <option value="">Wiedervorlagen: Alle</option>
+          <option value="overdue">Überfällig</option>
+          <option value="upcoming">Anstehend</option>
+        </select>
+        {hasFilters && (
+          <button onClick={() => { setFilterStage(""); setFilterTag(""); setFilterFollowUp(""); }} style={{ background: "transparent", border: `1px solid ${T.gray}30`, color: T.gray, padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Filter zurücksetzen</button>
+        )}
+      </div>
+
+      {/* Bulk Actions */}
+      {selectedIds.size > 0 && (
+        <div style={{ background: `${T.gold}10`, border: `1px solid ${T.gold}30`, borderRadius: 10, padding: "10px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: T.gold, fontWeight: 600 }}>{selectedIds.size} ausgewählt</span>
+          <select onChange={async (e) => {
+            if (!e.target.value) return;
+            const stage = e.target.value;
+            await Promise.all([...selectedIds].map(id => supabase.from('gt_leads').update({ pipeline_stage: stage }).eq('id', id)));
+            setSelectedIds(new Set());
+            refresh();
+            e.target.value = "";
+          }} style={{ background: T.navyMid, border: `1px solid ${T.gold}40`, borderRadius: 8, padding: "5px 10px", color: T.gold, fontSize: 12 }}>
+            <option value="">Pipeline-Stufe ändern...</option>
+            {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <button onClick={() => setSelectedIds(new Set())} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 12, cursor: "pointer" }}>Auswahl aufheben</button>
+        </div>
+      )}
+
       {/* Table */}
       <div style={{ background: T.navyLight, borderRadius: 16, border: `1px solid ${T.navyMid}`, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.navyMid}` }}>
-                {["Name", "E-Mail", "Unternehmen", "Status", "Kalkulationen", "Letzte Aktivität", "Aktionen"].map(h => (
+                <th style={{ padding: "12px 8px", width: 32 }}>
+                  <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={e => {
+                    if (e.target.checked) setSelectedIds(new Set(filtered.map(l => l.id)));
+                    else setSelectedIds(new Set());
+                  }} style={{ accentColor: T.gold }} />
+                </th>
+                {["Name", "E-Mail", "Unternehmen", "Status", "Kalk.", "Letzte Aktivität", "Aktionen"].map(h => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -383,14 +524,32 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
                 const badge = statusBadge(lead);
                 return (
                   <tr key={lead.id} style={{ borderBottom: `1px solid ${T.navyMid}08`, cursor: "pointer" }} onClick={() => onSelect(lead)}>
+                    <td style={{ padding: "12px 8px" }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={e => {
+                        const next = new Set(selectedIds);
+                        if (e.target.checked) next.add(lead.id); else next.delete(lead.id);
+                        setSelectedIds(next);
+                      }} style={{ accentColor: T.gold }} />
+                    </td>
                     <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 600 }}>{lead.name || "—"}</td>
                     <td style={{ padding: "12px 16px", fontSize: 13, color: T.grayLight }}>{lead.email}</td>
                     <td style={{ padding: "12px 16px", fontSize: 13 }}>{lead.company || "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: `${badge.color}15`, color: badge.color, border: `1px solid ${badge.color}30` }}>{badge.label}</span>
+                      {(lead.tags || []).slice(0, 2).map(tag => (
+                        <span key={tag} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, marginLeft: 4, background: `${getTagColor(tag)}10`, color: getTagColor(tag) }}>{tag}</span>
+                      ))}
+                      {(lead.tags || []).length > 2 && <span style={{ fontSize: 10, color: T.gray, marginLeft: 4 }}>+{(lead.tags || []).length - 2}</span>}
                     </td>
                     <td style={{ padding: "12px 16px", fontSize: 14, fontFamily: font, fontWeight: 600, color: T.gold }}>{lead.calc_count || 0}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 12, color: T.gray }}>{fmtDate(lead.last_activity)}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 12, color: T.gray }}>
+                      {fmtDate(lead.last_activity)}
+                      {lead.follow_up_date && (
+                        <div style={{ fontSize: 10, marginTop: 2, color: isOverdue(lead.follow_up_date) ? T.red : T.gold }}>
+                          {isOverdue(lead.follow_up_date) ? "⚠ " : "📅 "}{fmtFollowUp(lead.follow_up_date)}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: "12px 16px" }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: "flex", gap: 6 }}>
                         {lead.invite_token ? (
@@ -416,7 +575,7 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
                 );
               })}
               {!filtered.length && (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: T.gray }}>Keine Kontakte gefunden.</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.gray }}>Keine Kontakte gefunden.</td></tr>
               )}
             </tbody>
           </table>
@@ -456,6 +615,7 @@ function AddContactForm({ onBack, refresh }) {
         phone: f.phone || null,
         source: 'admin_created',
         status: 'new',
+        pipeline_stage: token ? 'eingeladen' : 'neu',
         invite_token: token,
         last_activity: new Date().toISOString(),
       }, { onConflict: 'email' })
@@ -548,19 +708,28 @@ function AdminField({ label, name, type = "text", ph, req, opts, value, onChange
 function ContactDetail({ lead, onBack }) {
   const [calcs, setCalcs] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [, forceRender] = useState(0);
+
+  // Notes form
+  const [newNote, setNewNote] = useState("");
+  const [noteType, setNoteType] = useState("note");
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [calcRes, reqRes] = await Promise.all([
+        const [calcRes, reqRes, noteRes] = await Promise.all([
           supabase.from('gt_calculations').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
           supabase.from('gt_contact_requests').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+          supabase.from('gt_lead_notes').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
         ]);
         setCalcs(calcRes.data || []);
         setRequests(reqRes.data || []);
+        setNotes(noteRes.data || []);
       } catch (e) { console.log("Failed to load detail:", e); }
       setLoading(false);
     })();
@@ -580,7 +749,51 @@ function ContactDetail({ lead, onBack }) {
     await supabase.from('gt_leads').update({ invite_token: token }).eq('id', lead.id);
     lead.invite_token = token;
     setCopiedLink(false);
+    forceRender(n => n + 1);
   };
+
+  const updatePipeline = async (stage) => {
+    await supabase.from('gt_leads').update({ pipeline_stage: stage }).eq('id', lead.id);
+    lead.pipeline_stage = stage;
+    forceRender(n => n + 1);
+  };
+
+  const setFollowUp = async (dateStr) => {
+    await supabase.from('gt_leads').update({ follow_up_date: dateStr }).eq('id', lead.id);
+    lead.follow_up_date = dateStr;
+    forceRender(n => n + 1);
+  };
+
+  const addTag = async (tag) => {
+    const tags = [...(lead.tags || [])];
+    if (tags.includes(tag)) return;
+    tags.push(tag);
+    await supabase.from('gt_leads').update({ tags }).eq('id', lead.id);
+    lead.tags = tags;
+    forceRender(n => n + 1);
+  };
+
+  const removeTag = async (tag) => {
+    const tags = (lead.tags || []).filter(t => t !== tag);
+    await supabase.from('gt_leads').update({ tags }).eq('id', lead.id);
+    lead.tags = tags;
+    forceRender(n => n + 1);
+  };
+
+  const saveNote = async () => {
+    if (!newNote.trim()) return;
+    setSavingNote(true);
+    const { data } = await supabase.from('gt_lead_notes').insert({
+      lead_id: lead.id,
+      text: newNote.trim(),
+      note_type: noteType,
+    }).select().single();
+    if (data) setNotes([data, ...notes]);
+    setNewNote("");
+    setSavingNote(false);
+  };
+
+  const currentStage = PIPELINE_MAP[lead.pipeline_stage] || PIPELINE_STAGES[0];
 
   return (
     <div>
@@ -593,10 +806,27 @@ function ContactDetail({ lead, onBack }) {
             <h2 style={{ fontFamily: font, fontSize: 28, fontWeight: 700, marginBottom: 4 }}>{lead.name || "Unbekannt"}</h2>
             <p style={{ fontSize: 15, color: T.gold, marginBottom: 12 }}>{lead.company || "—"}</p>
           </div>
-          <div style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: lead.password ? `${T.green}15` : lead.invite_token ? `${T.gold}15` : `${T.gray}15`, color: lead.password ? T.green : lead.invite_token ? T.gold : T.gray, border: `1px solid ${lead.password ? T.green : lead.invite_token ? T.gold : T.gray}30` }}>
-            {lead.password || lead.status === "registered" ? "Registriert" : lead.invite_token ? "Eingeladen" : "Neu"}
+          <div style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: `${currentStage.color}15`, color: currentStage.color, border: `1px solid ${currentStage.color}30` }}>
+            {currentStage.label}
           </div>
         </div>
+
+        {/* Pipeline Selector */}
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.navyMid}` }}>
+          <span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase", display: "block", marginBottom: 8 }}>Pipeline-Stufe</span>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {PIPELINE_STAGES.map(s => (
+              <button key={s.id} onClick={() => updatePipeline(s.id)} style={{
+                padding: "5px 12px", borderRadius: 8, cursor: "pointer", fontSize: 11,
+                background: lead.pipeline_stage === s.id ? `${s.color}20` : "transparent",
+                border: lead.pipeline_stage === s.id ? `1px solid ${s.color}50` : `1px solid ${T.navyMid}`,
+                color: lead.pipeline_stage === s.id ? s.color : T.grayLight,
+                fontWeight: lead.pipeline_stage === s.id ? 600 : 400,
+              }}>{s.label}</button>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginTop: 16 }}>
           <div><span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase" }}>E-Mail</span><div style={{ fontSize: 14, marginTop: 2 }}>{lead.email}</div></div>
           <div><span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase" }}>Position</span><div style={{ fontSize: 14, marginTop: 2 }}>{lead.role || "—"}</div></div>
@@ -608,8 +838,47 @@ function ContactDetail({ lead, onBack }) {
           <div><span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase" }}>Quelle</span><div style={{ fontSize: 14, marginTop: 2 }}>{lead.source || "—"}</div></div>
         </div>
 
+        {/* Tags */}
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.navyMid}` }}>
+          <span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase", display: "block", marginBottom: 8 }}>Tags</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {(lead.tags || []).map(tag => (
+              <span key={tag} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: `${getTagColor(tag)}15`, color: getTagColor(tag), border: `1px solid ${getTagColor(tag)}30`, display: "flex", alignItems: "center", gap: 6 }}>
+                {tag}
+                <button onClick={() => removeTag(tag)} style={{ background: "transparent", border: "none", color: getTagColor(tag), fontSize: 14, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
+              </span>
+            ))}
+            {TAG_PRESETS.filter(t => !(lead.tags || []).includes(t)).length > 0 && (
+              <select onChange={e => { if (e.target.value) { addTag(e.target.value); e.target.value = ""; } }} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "4px 8px", color: T.grayLight, fontSize: 11 }}>
+                <option value="">+ Tag</option>
+                {TAG_PRESETS.filter(t => !(lead.tags || []).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+
+        {/* Follow-Up */}
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.navyMid}` }}>
+          <span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase", display: "block", marginBottom: 8 }}>Wiedervorlage</span>
+          {lead.follow_up_date ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 14, color: isOverdue(lead.follow_up_date) ? T.red : T.gold, fontWeight: 600 }}>
+                {isOverdue(lead.follow_up_date) ? "⚠ " : "📅 "}
+                {fmtFollowUp(lead.follow_up_date)} ({new Date(lead.follow_up_date).toLocaleDateString("de-DE")})
+              </span>
+              <button onClick={() => setFollowUp(null)} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, color: T.gray, padding: "4px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>Entfernen</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6 }}>
+              {FOLLOW_UP_PRESETS.map(p => (
+                <button key={p.label} onClick={() => setFollowUp(addDays(p.days))} style={{ background: T.navyMid, border: `1px solid ${T.gold}20`, color: T.gold, padding: "5px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>{p.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Invite Link Section */}
-        <div style={{ marginTop: 20, padding: "16px 0 0", borderTop: `1px solid ${T.navyMid}` }}>
+        <div style={{ marginTop: 16, padding: "16px 0 0", borderTop: `1px solid ${T.navyMid}` }}>
           <span style={{ fontSize: 11, color: T.gray, textTransform: "uppercase" }}>Einladungslink</span>
           {inviteLink ? (
             <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
@@ -623,6 +892,50 @@ function ContactDetail({ lead, onBack }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Notes Section */}
+      <div style={{ marginBottom: 24 }}>
+        <h3 style={{ fontFamily: font, fontSize: 20, marginBottom: 16 }}>Notizen</h3>
+        <div style={{ background: T.navyLight, borderRadius: 16, padding: 20, border: `1px solid ${T.navyMid}`, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {NOTE_TYPES.map(nt => (
+              <button key={nt.id} onClick={() => setNoteType(nt.id)} style={{
+                padding: "4px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12,
+                background: noteType === nt.id ? `${T.gold}15` : T.navyMid,
+                border: noteType === nt.id ? `1px solid ${T.gold}40` : `1px solid transparent`,
+                color: noteType === nt.id ? T.gold : T.grayLight,
+              }}>{nt.icon} {nt.label}</button>
+            ))}
+          </div>
+          <textarea value={newNote} onChange={e => setNewNote(e.target.value)} rows={3} placeholder="Notiz hinzufügen..." style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 13, fontFamily: fontSans, resize: "vertical", marginBottom: 8 }} />
+          <button onClick={saveNote} disabled={savingNote || !newNote.trim()} style={{
+            background: newNote.trim() ? `linear-gradient(135deg, ${T.gold}, ${T.goldDark})` : T.navyMid,
+            color: newNote.trim() ? T.navy : T.gray, border: "none", padding: "8px 20px", borderRadius: 8,
+            fontSize: 13, fontWeight: 600, cursor: newNote.trim() ? "pointer" : "default",
+            opacity: savingNote ? 0.6 : 1,
+          }}>{savingNote ? "Speichert..." : "Notiz speichern"}</button>
+        </div>
+
+        {/* Notes Timeline */}
+        {notes.map(note => {
+          const nt = NOTE_TYPES.find(n => n.id === note.note_type) || NOTE_TYPES[0];
+          return (
+            <div key={note.id} style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 3, background: `${T.gold}40`, borderRadius: 2, flexShrink: 0 }} />
+              <div style={{ background: T.navyLight, borderRadius: 10, padding: "12px 16px", border: `1px solid ${T.navyMid}`, flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: T.gold }}>{nt.icon} {nt.label}</span>
+                  <span style={{ fontSize: 11, color: T.gray }}>{fmtDate(note.created_at)}</span>
+                </div>
+                <div style={{ fontSize: 13, color: T.grayLight, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{note.text}</div>
+              </div>
+            </div>
+          );
+        })}
+        {!notes.length && !loading && (
+          <div style={{ textAlign: "center", padding: 20, color: T.gray, fontSize: 13 }}>Noch keine Notizen.</div>
+        )}
       </div>
 
       {loading ? (
@@ -696,51 +1009,49 @@ function ActivityLog({ leads, onSelect }) {
     .filter(l => l.last_activity)
     .sort((a, b) => new Date(b.last_activity) - new Date(a.last_activity));
 
-  const registered = leads.filter(l => l.password || l.status === "registered");
-  const withCalcs = leads.filter(l => l.calc_count > 0);
-  const requested = leads.filter(l => l.status === "request_sent");
-
   return (
     <div>
       <h2 style={{ fontFamily: font, fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Aktivitäts-Übersicht</h2>
 
-      {/* Funnel */}
+      {/* Pipeline Funnel */}
       <div style={{ background: T.navyLight, borderRadius: 16, padding: 24, border: `1px solid ${T.navyMid}`, marginBottom: 24 }}>
-        <h3 style={{ fontFamily: font, fontSize: 18, marginBottom: 16 }}>Conversion Funnel</h3>
-        {[
-          { label: "Kontakte angelegt", count: leads.length, pct: 100, color: T.gray },
-          { label: "Eingeladen (Link generiert)", count: leads.filter(l => l.invite_token).length, pct: leads.length ? (leads.filter(l => l.invite_token).length / leads.length * 100) : 0, color: T.gold },
-          { label: "Registriert (Passwort vergeben)", count: registered.length, pct: leads.length ? (registered.length / leads.length * 100) : 0, color: T.seaLight },
-          { label: "Kalkulation gemacht", count: withCalcs.length, pct: leads.length ? (withCalcs.length / leads.length * 100) : 0, color: T.goldLight },
-          { label: "Angebot angefragt", count: requested.length, pct: leads.length ? (requested.length / leads.length * 100) : 0, color: T.green },
-        ].map((step, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-              <span style={{ color: T.grayLight }}>{step.label}</span>
-              <span style={{ color: step.color, fontWeight: 600 }}>{step.count} ({step.pct.toFixed(0)}%)</span>
+        <h3 style={{ fontFamily: font, fontSize: 18, marginBottom: 16 }}>Pipeline Funnel</h3>
+        {PIPELINE_STAGES.map((stage, i) => {
+          const count = leads.filter(l => l.pipeline_stage === stage.id).length;
+          const pct = leads.length ? (count / leads.length * 100) : 0;
+          return (
+            <div key={stage.id} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                <span style={{ color: T.grayLight }}>{stage.label}</span>
+                <span style={{ color: stage.color, fontWeight: 600 }}>{count} ({pct.toFixed(0)}%)</span>
+              </div>
+              <div style={{ background: T.navyMid, borderRadius: 4, height: 8, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: stage.color, borderRadius: 4, transition: "width 0.5s" }} />
+              </div>
             </div>
-            <div style={{ background: T.navyMid, borderRadius: 4, height: 8, overflow: "hidden" }}>
-              <div style={{ width: `${step.pct}%`, height: "100%", background: step.color, borderRadius: 4, transition: "width 0.5s" }} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Recent Activity */}
       <h3 style={{ fontFamily: font, fontSize: 18, marginBottom: 16 }}>Letzte Aktivitäten</h3>
-      {sorted.slice(0, 20).map(lead => (
-        <div key={lead.id} onClick={() => onSelect(lead)} style={{ background: T.navyLight, borderRadius: 10, padding: "12px 16px", border: `1px solid ${T.navyMid}`, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-          <div>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{lead.name || "Unbekannt"}</span>
-            <span style={{ color: T.grayLight, fontSize: 13, marginLeft: 12 }}>{lead.company || ""}</span>
+      {sorted.slice(0, 20).map(lead => {
+        const stage = PIPELINE_MAP[lead.pipeline_stage] || PIPELINE_STAGES[0];
+        return (
+          <div key={lead.id} onClick={() => onSelect(lead)} style={{ background: T.navyLight, borderRadius: 10, padding: "12px 16px", border: `1px solid ${T.navyMid}`, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+            <div>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{lead.name || "Unbekannt"}</span>
+              <span style={{ color: T.grayLight, fontSize: 13, marginLeft: 12 }}>{lead.company || ""}</span>
+              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, marginLeft: 8, background: `${stage.color}15`, color: stage.color }}>{stage.label}</span>
+            </div>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 12 }}>
+              {lead.calc_count > 0 && <span style={{ color: T.gold }}>{lead.calc_count} Kalk.</span>}
+              {lead.follow_up_date && <span style={{ color: isOverdue(lead.follow_up_date) ? T.red : T.gold }}>{isOverdue(lead.follow_up_date) ? "⚠" : "📅"}</span>}
+              <span style={{ color: T.gray }}>{fmtDate(lead.last_activity)}</span>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 12 }}>
-            {lead.calc_count > 0 && <span style={{ color: T.gold }}>{lead.calc_count} Kalk.</span>}
-            {(lead.password || lead.status === "registered") && <span style={{ color: T.green }}>✓ Reg.</span>}
-            <span style={{ color: T.gray }}>{fmtDate(lead.last_activity)}</span>
-          </div>
-        </div>
-      ))}
+        );
+      })}
       {!sorted.length && <div style={{ textAlign: "center", padding: 40, color: T.gray }}>Keine Aktivitäten vorhanden.</div>}
     </div>
   );

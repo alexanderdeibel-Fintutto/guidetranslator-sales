@@ -51,6 +51,7 @@ async function upsertLead(leadData) {
       phone: leadData.phone || null,
       source: 'sales_calculator',
       status: 'new',
+      pipeline_stage: 'neu',
       last_activity: new Date().toISOString(),
     }, { onConflict: 'email' })
     .select()
@@ -119,7 +120,7 @@ async function submitContactRequest(leadId, requestData) {
   // Update lead status
   await supabase
     .from('gt_leads')
-    .update({ status: 'request_sent', last_activity: new Date().toISOString() })
+    .update({ status: 'request_sent', pipeline_stage: 'angebot', last_activity: new Date().toISOString() })
     .eq('id', leadId);
   
   return { data, error };
@@ -229,6 +230,7 @@ export default function App() {
             phone: leadInfo.phone || null,
             password: password || null,
             status: 'registered',
+            pipeline_stage: 'registriert',
             last_login: new Date().toISOString(),
             last_activity: new Date().toISOString(),
           };
