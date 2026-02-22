@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "./supabaseClient";
+import Admin from "./Admin";
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────
 const T = {
@@ -139,12 +140,50 @@ export default function App() {
   const [savedCalcs, setSavedCalcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [useSupabase, setUseSupabase] = useState(false);
+  const [invitePrefill, setInvitePrefill] = useState(null);
 
   useEffect(() => {
     (async () => {
+      // Check URL for admin or invite routes
+      const path = window.location.pathname;
+      const params = new URLSearchParams(window.location.search);
+      const inviteToken = params.get("invite");
+
+      if (path === "/admin" || path.startsWith("/admin")) {
+        setPage("admin");
+        setLoading(false);
+        return;
+      }
+
       // Check if Supabase is configured
       const hasKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       setUseSupabase(!!hasKey);
+
+      // Handle invite token
+      if (inviteToken && hasKey) {
+        try {
+          const { data } = await supabase
+            .from('gt_leads')
+            .select('*')
+            .eq('invite_token', inviteToken)
+            .single();
+          if (data) {
+            setInvitePrefill({
+              name: data.name || "",
+              email: data.email || "",
+              company: data.company || "",
+              role: data.role || "",
+              ships: data.fleet_size || "",
+              phone: data.phone || "",
+              _inviteToken: inviteToken,
+              _leadId: data.id,
+            });
+            setPage("register");
+            setLoading(false);
+            return;
+          }
+        } catch (e) { console.log("Invite lookup failed:", e); }
+      }
 
       // Try loading from localStorage first (for instant UX)
       const local = lsLoad();
@@ -174,19 +213,40 @@ export default function App() {
   }, []);
 
   const handleRegister = async (info) => {
-    setLead(info);
-    let dbId = null;
+    const { password, _inviteToken, _leadId, ...leadInfo } = info;
+    setLead(leadInfo);
+    let dbId = _leadId || null;
 
     if (useSupabase) {
       try {
-        const { data } = await upsertLead(info);
-        if (data) dbId = data.id;
+        if (_inviteToken && _leadId) {
+          // Invite registration: update existing lead with password and mark as registered
+          const updateData = {
+            name: leadInfo.name,
+            company: leadInfo.company,
+            role: leadInfo.role || null,
+            fleet_size: leadInfo.ships || null,
+            phone: leadInfo.phone || null,
+            password: password || null,
+            status: 'registered',
+            last_login: new Date().toISOString(),
+            last_activity: new Date().toISOString(),
+          };
+          await supabase.from('gt_leads').update(updateData).eq('id', _leadId);
+          dbId = _leadId;
+        } else {
+          const { data } = await upsertLead(leadInfo);
+          if (data) dbId = data.id;
+        }
       } catch (e) { console.log("Supabase lead save failed:", e); }
     }
 
     setLeadId(dbId);
     setSavedCalcs([]);
-    lsSave({ lead: info, leadId: dbId, calcs: [] });
+    setInvitePrefill(null);
+    // Clean up URL
+    window.history.replaceState({}, '', window.location.pathname);
+    lsSave({ lead: leadInfo, leadId: dbId, calcs: [] });
     setPage("calculator");
   };
 
@@ -294,12 +354,18 @@ export default function App() {
         input:focus,select:focus,textarea:focus{outline:none;border-color:${T.gold}!important;box-shadow:0 0 0 3px ${T.gold}20}
         input[type=range]{width:100%;height:6px;-webkit-appearance:none;background:${T.navyMid};border-radius:3px;outline:none;accent-color:${T.gold}}
       `}</style>
-      <Nav />
-      {page === "landing" && <Landing onStart={() => lead ? setPage("calculator") : setPage("register")} lead={lead} setPage={setPage} />}
-      {page === "register" && <Register onRegister={handleRegister} setPage={setPage} />}
-      {page === "calculator" && <Calculator onSave={handleSaveCalc} lead={lead} setPage={setPage} />}
-      {page === "saved" && <Saved calcs={savedCalcs} onDelete={handleDeleteCalc} setPage={setPage} lead={lead} />}
-      {page === "contact" && <Contact lead={lead} calcs={savedCalcs} setPage={setPage} onSubmit={handleContact} />}
+      {page === "admin" ? (
+        <Admin onBack={() => { setPage("landing"); window.history.replaceState({}, '', '/'); }} />
+      ) : (
+        <>
+          <Nav />
+          {page === "landing" && <Landing onStart={() => lead ? setPage("calculator") : setPage("register")} lead={lead} setPage={setPage} />}
+          {page === "register" && <Register onRegister={handleRegister} setPage={setPage} prefill={invitePrefill} />}
+          {page === "calculator" && <Calculator onSave={handleSaveCalc} lead={lead} setPage={setPage} />}
+          {page === "saved" && <Saved calcs={savedCalcs} onDelete={handleDeleteCalc} setPage={setPage} lead={lead} />}
+          {page === "contact" && <Contact lead={lead} calcs={savedCalcs} setPage={setPage} onSubmit={handleContact} />}
+        </>
+      )}
     </div>
   );
 }
@@ -440,35 +506,45 @@ function Landing({ onStart, lead, setPage }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// REGISTER (Lead Capture)
-// ═══════════════════════════════════════════════════════════════
-function Register({ onRegister, setPage }) {
-  const [f, setF] = useState({ name: "", email: "", company: "", role: "", ships: "", phone: "" });
-  const [err, setErr] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!f.name || !f.email || !f.company) { setErr("Bitte Name, E-Mail und Unternehmen ausfüllen."); return; }
-    setSubmitting(true);
-    await onRegister(f);
-    setSubmitting(false);
-  };
-
-  const F = ({ label, name, type = "text", ph, req, opts }) => (
+// ─── FORM FIELD (extracted to prevent cursor jumping on re-render) ──
+function FormField({ label, name, type = "text", ph, req, opts, value, onChange }) {
+  return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <label style={{ fontSize: 13, color: T.grayLight, fontWeight: 500 }}>{label} {req && <span style={{ color: T.gold }}>*</span>}</label>
       {opts ? (
-        <select value={f[name]} onChange={e => setF({ ...f, [name]: e.target.value })} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 10, padding: "12px 16px", color: T.whiteTrue, fontSize: 15 }}>
+        <select value={value} onChange={e => onChange(name, e.target.value)} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 10, padding: "12px 16px", color: T.whiteTrue, fontSize: 15 }}>
           <option value="">Bitte wählen...</option>
           {opts.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : (
-        <input type={type} value={f[name]} onChange={e => setF({ ...f, [name]: e.target.value })} placeholder={ph} style={{ background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 10, padding: "12px 16px", color: T.whiteTrue, fontSize: 15 }} />
+        <input type={type} value={value} onChange={e => onChange(name, e.target.value)} placeholder={ph} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 10, padding: "12px 16px", color: T.whiteTrue, fontSize: 15 }} />
       )}
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGISTER (Lead Capture)
+// ═══════════════════════════════════════════════════════════════
+function Register({ onRegister, setPage, prefill }) {
+  const [f, setF] = useState(prefill || { name: "", email: "", company: "", role: "", ships: "", phone: "" });
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const isInvite = !!prefill;
+
+  const handleChange = useCallback((name, value) => {
+    setF(prev => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!f.name || !f.email || !f.company) { setErr("Bitte Name, E-Mail und Unternehmen ausfüllen."); return; }
+    if (isInvite && !password) { setErr("Bitte vergeben Sie ein Passwort."); return; }
+    setSubmitting(true);
+    await onRegister({ ...f, password: password || undefined });
+    setSubmitting(false);
+  };
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "60px 24px" }}>
@@ -476,23 +552,35 @@ function Register({ onRegister, setPage }) {
         <div style={{ width: 64, height: 64, borderRadius: "50%", margin: "0 auto 20px", background: `linear-gradient(135deg, ${T.gold}20, ${T.gold}05)`, border: `1px solid ${T.gold}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icon name="lock" size={28} />
         </div>
-        <h2 style={{ fontFamily: font, fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Enterprise Kalkulator</h2>
-        <p style={{ color: T.grayLight, fontSize: 15 }}>Registrieren Sie sich kostenlos für Ihren individuellen Einsparungs-Kalkulator.</p>
+        <h2 style={{ fontFamily: font, fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
+          {isInvite ? "Willkommen bei GuideTranslator" : "Enterprise Kalkulator"}
+        </h2>
+        <p style={{ color: T.grayLight, fontSize: 15 }}>
+          {isInvite
+            ? "Bitte prüfen Sie Ihre Daten und vergeben Sie ein Passwort."
+            : "Registrieren Sie sich kostenlos für Ihren individuellen Einsparungs-Kalkulator."}
+        </p>
       </div>
       <form onSubmit={handleSubmit} className="fu1" style={{ background: T.navyLight, borderRadius: 20, padding: 32, border: `1px solid ${T.navyMid}`, display: "flex", flexDirection: "column", gap: 16 }}>
-        <F label="Ihr Name" name="name" ph="Max Mustermann" req />
-        <F label="E-Mail" name="email" type="email" ph="m.mustermann@reederei.de" req />
-        <F label="Unternehmen / Reederei" name="company" ph="z.B. AIDA Cruises" req />
-        <F label="Ihre Position" name="role" opts={["C-Level / Geschäftsführung", "VP / Director Shore Excursions", "Einkauf / Procurement", "IT / Digital", "Operations", "Hotel Director", "Marketing", "Sonstige"]} />
-        <F label="Flottengröße" name="ships" opts={["1-2 Schiffe", "3-5 Schiffe", "6-10 Schiffe", "11-20 Schiffe", "20+ Schiffe"]} />
-        <F label="Telefon (optional)" name="phone" type="tel" ph="+49 ..." />
+        <FormField label="Ihr Name" name="name" ph="Max Mustermann" req value={f.name} onChange={handleChange} />
+        <FormField label="E-Mail" name="email" type="email" ph="m.mustermann@reederei.de" req value={f.email} onChange={handleChange} />
+        <FormField label="Unternehmen / Reederei" name="company" ph="z.B. AIDA Cruises" req value={f.company} onChange={handleChange} />
+        <FormField label="Ihre Position" name="role" value={f.role} onChange={handleChange} opts={["C-Level / Geschäftsführung", "VP / Director Shore Excursions", "Einkauf / Procurement", "IT / Digital", "Operations", "Hotel Director", "Marketing", "Sonstige"]} />
+        <FormField label="Flottengröße" name="ships" value={f.ships} onChange={handleChange} opts={["1-2 Schiffe", "3-5 Schiffe", "6-10 Schiffe", "11-20 Schiffe", "20+ Schiffe"]} />
+        <FormField label="Telefon (optional)" name="phone" type="tel" ph="+49 ..." value={f.phone} onChange={handleChange} />
+        {isInvite && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 13, color: T.grayLight, fontWeight: 500 }}>Passwort vergeben <span style={{ color: T.gold }}>*</span></label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mindestens 6 Zeichen" style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 10, padding: "12px 16px", color: T.whiteTrue, fontSize: 15 }} />
+          </div>
+        )}
         {err && <p style={{ color: T.red, fontSize: 13 }}>{err}</p>}
         <button type="submit" disabled={submitting} style={{ background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`, color: T.navy, border: "none", padding: "14px 24px", borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 8, opacity: submitting ? 0.6 : 1 }}>
-          {submitting ? "Wird gespeichert..." : "Kostenlos registrieren & berechnen"}
+          {submitting ? "Wird gespeichert..." : isInvite ? "Registrierung abschließen" : "Kostenlos registrieren & berechnen"}
         </button>
         <p style={{ fontSize: 11, color: T.gray, textAlign: "center" }}>Keine Kreditkarte erforderlich. DSGVO-konform.</p>
       </form>
-      <button onClick={() => setPage("landing")} style={{ background: "transparent", border: "none", color: T.grayLight, fontSize: 14, marginTop: 20, cursor: "pointer", display: "block", margin: "20px auto 0" }}>← Zurück</button>
+      {!isInvite && <button onClick={() => setPage("landing")} style={{ background: "transparent", border: "none", color: T.grayLight, fontSize: 14, marginTop: 20, cursor: "pointer", display: "block", margin: "20px auto 0" }}>← Zurück</button>}
     </div>
   );
 }
