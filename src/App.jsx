@@ -341,7 +341,7 @@ function Landing({ onStart, lead, setPage }) {
         </h1>
 
         <p className="fu2" style={{ fontSize: "clamp(16px, 2vw, 20px)", color: T.grayLight, maxWidth: 640, lineHeight: 1.6, marginTop: 24, position: "relative", zIndex: 1 }}>
-          KI-gestützte Echtzeit-Übersetzung für Landausflüge, Bordprogramme und Shore Excursions — in über 130 Sprachen, für weniger als 1 Cent pro Passagier.
+          KI-gestützte Echtzeit-Übersetzung für Landausflüge, Bordprogramme und Shore Excursions — in über 130 Sprachen, ab 1 Cent pro Passagier pro Ausflug.
         </p>
 
         <div className="fu3" style={{ display: "flex", gap: 16, marginTop: 40, flexWrap: "wrap", justifyContent: "center", position: "relative", zIndex: 1 }}>
@@ -356,9 +356,9 @@ function Landing({ onStart, lead, setPage }) {
         </div>
 
         <div className="fu4" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 24, marginTop: 64, maxWidth: 700, width: "100%", position: "relative", zIndex: 1 }}>
-          <S num="93%" label="Kostenersparnis" sub="vs. traditionelle Guides" />
+          <S num="≤80%" label="Ersparnis" sub="vs. traditionelle Guides" />
           <S num="130+" label="Sprachen" sub="in Echtzeit verfügbar" />
-          <S num="<1¢" label="pro Passagier" sub="pro Landausflug" />
+          <S num="ab 1¢" label="pro Passagier" sub="pro Ausflug" />
           <S num="2-4s" label="Latenz" sub="Echtzeit-Übersetzung" />
         </div>
       </section>
@@ -401,7 +401,7 @@ function Landing({ onStart, lead, setPage }) {
             </div>
             <div className="gg" style={{ background: `${T.gold}08`, border: `1px solid ${T.gold}25`, borderRadius: 16, padding: 28 }}>
               <div style={{ fontSize: 14, color: T.gold, fontWeight: 600, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>Mit GuideTranslator</div>
-              {["1 Guide + KI = alle Sprachen", "130+ Sprachen sofort verfügbar", "Standardisierte, geprüfte Inhalte", "~€32.500/Schiff/Jahr (-93%)"].map((t, i) => (
+              {["1 Guide + KI = alle Sprachen", "130+ Sprachen sofort verfügbar", "Standardisierte, geprüfte Inhalte", "~€32.500/Schiff/Jahr (bis zu -80%)"].map((t, i) => (
                 <div key={i} style={{ display: "flex", gap: 8, marginBottom: 10, fontSize: 14, color: T.whiteTrue }}><Icon name="check" size={16} color={T.green} />{t}</div>
               ))}
             </div>
@@ -434,7 +434,7 @@ function Landing({ onStart, lead, setPage }) {
       </section>
 
       <footer style={{ padding: "32px 24px", textAlign: "center", borderTop: `1px solid ${T.navyMid}` }}>
-        <p style={{ fontSize: 12, color: T.gray }}>© 2026 FinTuttO GmbH — Powered by Google Cloud AI | <a href="https://fintutto.de" style={{ color: T.gold, textDecoration: "none" }}>fintutto.de</a></p>
+        <p style={{ fontSize: 12, color: T.gray }}>© 2026 ai tour UG (haftungsbeschränkt) — Ein Produkt von <a href="https://fintutto.cloud" style={{ color: T.gold, textDecoration: "none" }}>fintutto.cloud</a> | Powered by Google Cloud AI</p>
       </footer>
     </div>
   );
