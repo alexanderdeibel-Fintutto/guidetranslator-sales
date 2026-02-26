@@ -8,6 +8,7 @@ import { getSegment } from "./config/segments";
 
 // Pages
 import Admin from "./Admin";
+import Login from "./pages/Login";
 import SegmentHub from "./pages/SegmentHub";
 import SegmentLanding from "./pages/SegmentLanding";
 import Register from "./pages/Register";
@@ -226,6 +227,9 @@ export default function App() {
     <div style={{ background: T.navy, minHeight: "100vh", color: T.whiteTrue, fontFamily: fontSans }}>
       <style>{globalCSS}</style>
       <Routes>
+        {/* Auth */}
+        <Route path="/login" element={<Login />} />
+
         {/* Admin */}
         <Route path="/admin/*" element={<Admin onBack={() => window.location.href = "/"} />} />
 
