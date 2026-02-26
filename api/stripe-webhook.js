@@ -12,6 +12,29 @@ import crypto from "crypto";
 // Disable body parsing — we need the raw body for signature verification
 export const config = { api: { bodyParser: false } };
 
+// Reverse lookup: Stripe priceId → tier name
+const PRICE_TO_TIER = {
+  "price_1T51ek52lqSgjCzeuIeICocy": "starter",
+  "price_1T51ek52lqSgjCzeW2zweQle": "pro",
+  "price_1T51ek52lqSgjCze5T0497Og": "business",
+  "price_1T51el52lqSgjCzeSxSZHZ21": "enterprise",
+  "price_1T51el52lqSgjCzeCSoj2LBz": "fleet_starter",
+  "price_1T51em52lqSgjCzek7VTl2Pp": "fleet_pro",
+};
+
+async function fetchSubscriptionPriceId(stripeKey, subscriptionId) {
+  if (!subscriptionId) return null;
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+      headers: { Authorization: `Bearer ${stripeKey}` },
+    });
+    const sub = await res.json();
+    return sub.items?.data?.[0]?.price?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
@@ -30,6 +53,14 @@ function verifyStripeSignature(rawBody, sigHeader, secret) {
 
   const timestamp = parts.t;
   const signature = parts.v1;
+
+  if (!timestamp || !signature) return false;
+
+  // Reject events older than 5 minutes (replay attack protection)
+  const tolerance = 300; // 5 minutes in seconds
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parseInt(timestamp, 10)) > tolerance) return false;
+
   const signedPayload = `${timestamp}.${rawBody}`;
   const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("hex");
 
@@ -71,18 +102,37 @@ export default async function handler(req, res) {
         const customerId = session.customer;
         const email = session.customer_email || session.customer_details?.email;
         const subscriptionId = session.subscription;
+        const mode = session.mode; // "subscription" or "payment"
 
         if (supabase && email) {
-          // Update lead with Stripe info
+          // Resolve subscription_tier from metadata or by fetching the subscription
+          let tierName = session.metadata?.tier_id || null;
+
+          if (!tierName && subscriptionId) {
+            const priceId = await fetchSubscriptionPriceId(stripeKey, subscriptionId);
+            if (priceId) tierName = PRICE_TO_TIER[priceId] || null;
+          }
+
+          // Build update payload
+          const leadUpdate = {
+            stripe_customer_id: customerId,
+            pipeline_stage: "gewonnen",
+            status: "active_subscriber",
+            last_activity: new Date().toISOString(),
+          };
+
+          if (mode === "subscription" && subscriptionId) {
+            leadUpdate.stripe_subscription_id = subscriptionId;
+            leadUpdate.subscription_status = "active";
+          }
+
+          if (tierName) {
+            leadUpdate.subscription_tier = tierName;
+          }
+
           await supabase
             .from("gt_leads")
-            .update({
-              stripe_customer_id: customerId,
-              stripe_subscription_id: subscriptionId,
-              pipeline_stage: "gewonnen",
-              status: "active_subscriber",
-              last_activity: new Date().toISOString(),
-            })
+            .update(leadUpdate)
             .eq("email", email);
 
           // Log the event
@@ -93,10 +143,14 @@ export default async function handler(req, res) {
             .single();
 
           if (lead) {
+            const noteText = mode === "subscription"
+              ? `Stripe Subscription aktiviert: ${subscriptionId} (Tier: ${tierName || "unbekannt"})`
+              : `Stripe Einmalzahlung abgeschlossen (${tierName || "Add-On"})`;
+
             await supabase.from("gt_lead_notes").insert({
               lead_id: lead.id,
-              text: `Stripe Subscription aktiviert: ${subscriptionId}`,
-              note_type: "note",
+              text: noteText,
+              note_type: "system",
             });
           }
         }
@@ -114,6 +168,12 @@ export default async function handler(req, res) {
             subscription_status: status,
             last_activity: new Date().toISOString(),
           };
+
+          // Resolve tier from current subscription price
+          const currentPriceId = subscription.items?.data?.[0]?.price?.id;
+          if (currentPriceId && PRICE_TO_TIER[currentPriceId]) {
+            updates.subscription_tier = PRICE_TO_TIER[currentPriceId];
+          }
 
           if (status === "active") {
             updates.pipeline_stage = "gewonnen";

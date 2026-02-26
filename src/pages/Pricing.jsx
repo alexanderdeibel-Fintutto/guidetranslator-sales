@@ -1,13 +1,39 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { T, font, fontSans } from "../lib/tokens";
 import { getSegment } from "../config/segments";
 import { getTiersForSegment, formatPrice, ADDONS } from "../config/pricing";
+
+async function startCheckout(priceId, { mode = "subscription", tierId, segment } = {}) {
+  if (!priceId) return;
+  try {
+    const res = await fetch("/api/create-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        priceId,
+        mode,
+        metadata: { tier_id: tierId || "", segment: segment || "" },
+      }),
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else if (data.error) {
+      alert(`Fehler: ${data.error}`);
+    }
+  } catch (err) {
+    console.error("Checkout error:", err);
+    alert("Checkout konnte nicht gestartet werden. Bitte versuchen Sie es erneut.");
+  }
+}
 
 export default function Pricing() {
   const { segment } = useParams();
   const seg = getSegment(segment);
   const tiers = getTiersForSegment(segment);
   const accent = seg?.color || T.gold;
+  const [loading, setLoading] = useState(null); // track which button is loading
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "48px 24px 80px" }}>
@@ -124,14 +150,23 @@ export default function Pricing() {
                     fontSize: 15, fontWeight: 700,
                   }}>Kostenlos starten</a>
                 ) : tier.stripePriceId ? (
-                  <button onClick={() => handleCheckout(tier)} style={{
-                    width: "100%",
-                    background: isPopular ? `linear-gradient(135deg, ${accent}, ${T.goldDark})` : T.navyMid,
-                    color: isPopular ? T.navy : accent,
-                    border: isPopular ? "none" : `1px solid ${accent}40`,
-                    padding: "14px 24px", borderRadius: 12,
-                    fontSize: 15, fontWeight: 700, cursor: "pointer",
-                  }}>Jetzt starten</button>
+                  <button
+                    disabled={loading === tier.id}
+                    onClick={async () => {
+                      setLoading(tier.id);
+                      await startCheckout(tier.stripePriceId, { mode: "subscription", tierId: tier.id, segment });
+                      setLoading(null);
+                    }}
+                    style={{
+                      width: "100%",
+                      background: isPopular ? `linear-gradient(135deg, ${accent}, ${T.goldDark})` : T.navyMid,
+                      color: isPopular ? T.navy : accent,
+                      border: isPopular ? "none" : `1px solid ${accent}40`,
+                      padding: "14px 24px", borderRadius: 12,
+                      fontSize: 15, fontWeight: 700,
+                      cursor: loading === tier.id ? "wait" : "pointer",
+                      opacity: loading === tier.id ? 0.6 : 1,
+                    }}>{loading === tier.id ? "Wird geladen..." : "Jetzt starten"}</button>
                 ) : (
                   <Link to={`/${segment}/contact`} style={{
                     display: "block", textAlign: "center", textDecoration: "none",
@@ -157,14 +192,31 @@ export default function Pricing() {
         <h2 style={{ fontFamily: font, fontSize: 22, fontWeight: 700, marginBottom: 20 }}>
           Zusatzkontingente <span style={{ color: accent }}>/ Add-Ons</span>
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
           {Object.values(ADDONS).map(addon => (
             <div key={addon.id} style={{
               background: T.navyMid, borderRadius: 12, padding: "14px 18px",
-              display: "flex", justifyContent: "space-between", alignItems: "center",
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
             }}>
-              <span style={{ fontSize: 14, color: T.grayLight }}>{addon.name}</span>
-              <span style={{ fontFamily: font, fontSize: 16, fontWeight: 700, color: accent }}>{formatPrice(addon.price)}</span>
+              <div>
+                <div style={{ fontSize: 14, color: T.grayLight }}>{addon.name}</div>
+                <div style={{ fontFamily: font, fontSize: 16, fontWeight: 700, color: accent }}>{formatPrice(addon.price)}</div>
+              </div>
+              <button
+                disabled={loading === addon.id}
+                onClick={async () => {
+                  setLoading(addon.id);
+                  await startCheckout(addon.stripePriceId, { mode: "payment", tierId: addon.id, segment });
+                  setLoading(null);
+                }}
+                style={{
+                  background: `${accent}20`, color: accent,
+                  border: `1px solid ${accent}40`,
+                  padding: "8px 16px", borderRadius: 8,
+                  fontSize: 13, fontWeight: 600, cursor: loading === addon.id ? "wait" : "pointer",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                  opacity: loading === addon.id ? 0.6 : 1,
+                }}>{loading === addon.id ? "..." : "Kaufen"}</button>
             </div>
           ))}
         </div>
@@ -212,19 +264,3 @@ export default function Pricing() {
   );
 }
 
-async function handleCheckout(tier) {
-  if (!tier.stripePriceId) return;
-  try {
-    const res = await fetch("/api/create-checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ priceId: tier.stripePriceId }),
-    });
-    const data = await res.json();
-    if (data.url) {
-      window.location.href = data.url;
-    }
-  } catch (err) {
-    console.error("Checkout error:", err);
-  }
-}

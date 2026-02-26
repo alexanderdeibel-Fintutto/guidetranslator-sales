@@ -4,7 +4,8 @@ import { T, font, fontSans } from "./lib/tokens";
 import { useAuth } from "./lib/AuthContext";
 
 // ─── LEGACY ADMIN PASSWORD (fallback if Supabase Auth not set up yet) ────
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "guidetranslator2026";
+// IMPORTANT: Set VITE_ADMIN_PASSWORD in your .env — no hardcoded fallback
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || null;
 
 // ─── HELPERS ────────────────────────────────────────────────────
 const fmtEur = (n) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
@@ -230,6 +231,10 @@ export default function Admin({ onBack }) {
 
   const handleLogin = (e) => {
     e.preventDefault();
+    if (!ADMIN_PASSWORD) {
+      setPwError("Admin-Passwort nicht konfiguriert. Bitte VITE_ADMIN_PASSWORD in .env setzen.");
+      return;
+    }
     if (pw === ADMIN_PASSWORD) {
       setLegacyAuthed(true);
       setPwError("");

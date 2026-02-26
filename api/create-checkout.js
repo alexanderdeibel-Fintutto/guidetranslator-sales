@@ -14,15 +14,17 @@ export default async function handler(req, res) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured" });
 
-  const { priceId, customerEmail, metadata } = req.body;
+  const { priceId, customerEmail, metadata, mode } = req.body;
   if (!priceId) return res.status(400).json({ error: "Missing priceId" });
 
+  // mode: "subscription" (default) or "payment" (for one-time add-ons)
+  const checkoutMode = mode === "payment" ? "payment" : "subscription";
   const appUrl = process.env.APP_URL || "https://sales.guidetranslator.com";
 
   try {
     // Create Checkout Session via Stripe API directly (no SDK needed)
     const params = new URLSearchParams();
-    params.append("mode", "subscription");
+    params.append("mode", checkoutMode);
     params.append("success_url", `${appUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
     params.append("cancel_url", `${appUrl}/pricing?checkout=cancelled`);
     params.append("line_items[0][price]", priceId);
