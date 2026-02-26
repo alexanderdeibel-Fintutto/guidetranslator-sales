@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/stripe-setup.html", "destination": "/stripe-setup.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "crons": [
