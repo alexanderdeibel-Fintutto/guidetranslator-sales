@@ -31,7 +31,7 @@ export const PRICING_TIERS = {
     name: "Starter",
     price: 19,
     interval: "month",
-    stripePriceId: null, // → Stripe Dashboard: price_xxx
+    stripePriceId: "price_1T51ek52lqSgjCzeuIeICocy",
     badge: "Beliebt",
     limits: {
       minutes: 120,
@@ -54,7 +54,7 @@ export const PRICING_TIERS = {
     name: "Professional",
     price: 49,
     interval: "month",
-    stripePriceId: null,
+    stripePriceId: "price_1T51ek52lqSgjCzeW2zweQle",
     badge: null,
     limits: {
       minutes: 500,
@@ -80,7 +80,7 @@ export const PRICING_TIERS = {
     name: "Business",
     price: 149,
     interval: "month",
-    stripePriceId: null,
+    stripePriceId: "price_1T51ek52lqSgjCze5T0497Og",
     badge: "Empfohlen",
     limits: {
       minutes: 2000,
@@ -107,7 +107,7 @@ export const PRICING_TIERS = {
     name: "Enterprise",
     price: 499,
     interval: "month",
-    stripePriceId: null,
+    stripePriceId: "price_1T51el52lqSgjCzeSxSZHZ21",
     badge: "Premium",
     limits: {
       minutes: 10000,
@@ -136,7 +136,7 @@ export const PRICING_TIERS = {
     name: "Fleet Starter",
     price: 299,
     interval: "month",
-    stripePriceId: null,
+    stripePriceId: "price_1T51el52lqSgjCzeCSoj2LBz",
     badge: null,
     limits: {
       minutes: 5000,
@@ -161,7 +161,7 @@ export const PRICING_TIERS = {
     name: "Fleet Professional",
     price: 799,
     interval: "month",
-    stripePriceId: null,
+    stripePriceId: "price_1T51em52lqSgjCzek7VTl2Pp",
     badge: "Empfohlen",
     limits: {
       minutes: 20000,
@@ -234,11 +234,11 @@ export const PRICING_TIERS = {
 
 // ─── Add-Ons (Zusatzkontingente) ──────────────
 export const ADDONS = {
-  extra_minutes_100: { id: "extra_minutes_100", name: "+100 Minuten", price: 9, stripePriceId: null },
-  extra_minutes_500: { id: "extra_minutes_500", name: "+500 Minuten", price: 39, stripePriceId: null },
-  extra_minutes_2000: { id: "extra_minutes_2000", name: "+2.000 Minuten", price: 129, stripePriceId: null },
-  extra_listeners_50: { id: "extra_listeners_50", name: "+50 Hörer", price: 19, stripePriceId: null },
-  extra_subaccounts_5: { id: "extra_subaccounts_5", name: "+5 Sub-Accounts", price: 29, stripePriceId: null },
+  extra_minutes_100: { id: "extra_minutes_100", name: "+100 Minuten", price: 9, stripePriceId: "price_1T51em52lqSgjCzeAsDAg0Kj" },
+  extra_minutes_500: { id: "extra_minutes_500", name: "+500 Minuten", price: 39, stripePriceId: "price_1T51em52lqSgjCzeQWJF4WzY" },
+  extra_minutes_2000: { id: "extra_minutes_2000", name: "+2.000 Minuten", price: 129, stripePriceId: "price_1T51en52lqSgjCzembwJ7Hwu" },
+  extra_listeners_50: { id: "extra_listeners_50", name: "+50 Hörer", price: 19, stripePriceId: "price_1T51en52lqSgjCzerhJNQGv4" },
+  extra_subaccounts_5: { id: "extra_subaccounts_5", name: "+5 Sub-Accounts", price: 29, stripePriceId: "price_1T51eo52lqSgjCzeuOhScCRj" },
 };
 
 // ─── Helpers ──────────────────────────────────
