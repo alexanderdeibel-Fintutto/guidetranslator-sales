@@ -37,6 +37,7 @@ const DEFAULT_EMAIL_TEMPLATES = [
   {
     id: "intro",
     name: "Ersteinladung",
+    pipelineStage: "eingeladen",
     subject: "Ihre persönliche Einladung zum GuideTranslator Kalkulator",
     bodyTemplate: `Sehr geehrte/r {{name}},
 
@@ -60,6 +61,7 @@ enterprise@guidetranslator.com`,
   {
     id: "followup",
     name: "Nachfass / Follow-up",
+    pipelineStage: null, // bleibt auf aktueller Stufe
     subject: "Haben Sie schon Ihre Einsparung berechnet?",
     bodyTemplate: `Sehr geehrte/r {{name}},
 
@@ -81,6 +83,7 @@ enterprise@guidetranslator.com`,
   {
     id: "demo",
     name: "Demo-Einladung",
+    pipelineStage: "demo",
     subject: "Live-Demo: GuideTranslator für {{company}}",
     bodyTemplate: `Sehr geehrte/r {{name}},
 
@@ -426,7 +429,7 @@ function AdminDashboard({ onBack }) {
               <ActivityLog leads={leads} onSelect={setSelectedLead} />
             )}
             {showEmailModal && (
-              <EmailModal lead={leads.find(l => l.id === showEmailModal)} onClose={() => setShowEmailModal(null)} />
+              <EmailModal lead={leads.find(l => l.id === showEmailModal)} onClose={() => setShowEmailModal(null)} refresh={refresh} />
             )}
           </>
         )}
@@ -465,7 +468,12 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
 
   const generateInvite = async (lead) => {
     const token = generateToken();
-    await supabase.from('gt_leads').update({ invite_token: token }).eq('id', lead.id);
+    const updates = { invite_token: token, last_activity: new Date().toISOString() };
+    // Auto-advance pipeline: if still "neu", move to "eingeladen"
+    if (!lead.pipeline_stage || lead.pipeline_stage === "neu") {
+      updates.pipeline_stage = "eingeladen";
+    }
+    await supabase.from('gt_leads').update(updates).eq('id', lead.id);
     refresh();
   };
 
@@ -1092,13 +1100,15 @@ function ActivityLog({ leads, onSelect }) {
 // ═══════════════════════════════════════════════════════════════
 // EMAIL MODAL
 // ═══════════════════════════════════════════════════════════════
-function EmailModal({ lead, onClose }) {
+function EmailModal({ lead, onClose, refresh }) {
   const [templates, setTemplates] = useState(getAllTemplates);
   const [selectedTemplate, setSelectedTemplate] = useState(templates[0]?.id);
   const [copied, setCopied] = useState(null);
   const [editing, setEditing] = useState(null); // template being edited
   const [editForm, setEditForm] = useState({ name: "", subject: "", bodyTemplate: "" });
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null); // { success: true } or { error: "msg" }
 
   if (!lead) return null;
 
@@ -1116,14 +1126,63 @@ function EmailModal({ lead, onClose }) {
   const subject = renderTemplate(template?.subject || "", lead, inviteLink);
   const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
 
+  // Track email action: update pipeline + create note
+  const trackEmailSent = async (method) => {
+    const updates = { last_activity: new Date().toISOString() };
+    // Auto-advance pipeline based on template type
+    if (template?.pipelineStage && lead.pipeline_stage !== template.pipelineStage) {
+      const currentIdx = PIPELINE_STAGES.findIndex(s => s.id === lead.pipeline_stage);
+      const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === template.pipelineStage);
+      // Only advance forward (don't go backwards)
+      if (targetIdx > currentIdx || currentIdx === -1) {
+        updates.pipeline_stage = template.pipelineStage;
+        lead.pipeline_stage = template.pipelineStage;
+      }
+    }
+    await supabase.from('gt_leads').update(updates).eq('id', lead.id);
+    // Auto-create note
+    await supabase.from('gt_lead_notes').insert({
+      lead_id: lead.id,
+      text: `E-Mail "${template?.name || 'Unbekannt'}" an ${lead.email} (${method})`,
+      note_type: 'email',
+    });
+  };
+
+  // Direct send via API route
+  const handleSendDirect = async () => {
+    if (!lead.email) return;
+    setSending(true);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: lead.email, subject, body }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        await trackEmailSent("direkt versendet");
+        setSendResult({ success: true });
+        if (refresh) refresh();
+      } else {
+        setSendResult({ error: data.error || "Versand fehlgeschlagen" });
+      }
+    } catch (err) {
+      setSendResult({ error: "Netzwerkfehler — ist RESEND_API_KEY gesetzt?" });
+    }
+    setSending(false);
+  };
+
   const copyToClipboard = async (text, type) => {
     await navigator.clipboard.writeText(text);
     setCopied(type);
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const openMailto = () => {
+  const openMailto = async () => {
     window.open(`mailto:${lead.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+    await trackEmailSent("via E-Mail-Client");
+    if (refresh) refresh();
   };
 
   const handleDuplicate = (tmpl) => {
@@ -1133,6 +1192,7 @@ function EmailModal({ lead, onClose }) {
       name: `${tmpl.name} (Kopie)`,
       subject: tmpl.subject,
       bodyTemplate: tmpl.bodyTemplate,
+      pipelineStage: tmpl.pipelineStage || null,
       isDefault: false,
     };
     custom.push(newTmpl);
@@ -1142,13 +1202,13 @@ function EmailModal({ lead, onClose }) {
   };
 
   const handleStartEdit = (tmpl) => {
-    setEditForm({ name: tmpl.name, subject: tmpl.subject, bodyTemplate: tmpl.bodyTemplate });
+    setEditForm({ name: tmpl.name, subject: tmpl.subject, bodyTemplate: tmpl.bodyTemplate, pipelineStage: tmpl.pipelineStage || "" });
     setEditing(tmpl.id);
   };
 
   const handleSaveEdit = () => {
     const custom = loadCustomTemplates().map(t =>
-      t.id === editing ? { ...t, name: editForm.name, subject: editForm.subject, bodyTemplate: editForm.bodyTemplate } : t
+      t.id === editing ? { ...t, name: editForm.name, subject: editForm.subject, bodyTemplate: editForm.bodyTemplate, pipelineStage: editForm.pipelineStage || null } : t
     );
     saveCustomTemplates(custom);
     refreshTemplates();
@@ -1170,6 +1230,7 @@ function EmailModal({ lead, onClose }) {
       name: "Neue Vorlage",
       subject: "Betreff hier eingeben",
       bodyTemplate: `Sehr geehrte/r {{name}},\n\n[Ihr Text hier]\n\nIhr persönlicher Link:\n{{link}}\n\nMit freundlichen Grüßen\nUlrich Deibel\nGuideTranslator Enterprise\nenterprise@guidetranslator.com`,
+      pipelineStage: null,
       isDefault: false,
     };
     custom.push(newTmpl);
@@ -1212,6 +1273,14 @@ function EmailModal({ lead, onClose }) {
                 <span style={{ fontSize: 11, color: T.gray }}>Platzhalter: {"{{name}}"} {"{{company}}"} {"{{link}}"}</span>
               </div>
               <textarea value={editForm.bodyTemplate} onChange={e => setEditForm(f => ({ ...f, bodyTemplate: e.target.value }))} rows={14} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "12px 14px", color: T.whiteTrue, fontSize: 13, fontFamily: fontSans, lineHeight: 1.6, resize: "vertical" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, display: "block" }}>Pipeline-Stufe bei Versand</label>
+              <select value={editForm.pipelineStage || ""} onChange={e => setEditForm(f => ({ ...f, pipelineStage: e.target.value || null }))} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }}>
+                <option value="">Keine Änderung</option>
+                {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <span style={{ fontSize: 11, color: T.gray, marginTop: 4, display: "block" }}>Lead wird automatisch auf diese Stufe gesetzt wenn die E-Mail versendet wird</span>
             </div>
           </div>
 
@@ -1308,14 +1377,39 @@ function EmailModal({ lead, onClose }) {
           <pre style={{ background: T.navyMid, borderRadius: 8, padding: 16, fontSize: 13, color: T.grayLight, lineHeight: 1.6, whiteSpace: "pre-wrap", fontFamily: fontSans, maxHeight: 300, overflow: "auto" }}>{body}</pre>
         </div>
 
+        {/* Pipeline auto-update hint */}
+        {template?.pipelineStage && (
+          <div style={{ background: `${T.sea}08`, border: `1px solid ${T.sea}20`, borderRadius: 8, padding: "8px 14px", marginBottom: 16, fontSize: 12, color: T.seaLight }}>
+            Pipeline wird automatisch auf <strong>{PIPELINE_MAP[template.pipelineStage]?.label || template.pipelineStage}</strong> gesetzt
+          </div>
+        )}
+
+        {/* Send Result Feedback */}
+        {sendResult?.success && (
+          <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: T.green, fontWeight: 600 }}>
+            ✓ E-Mail erfolgreich an {lead.email} versendet!
+          </div>
+        )}
+        {sendResult?.error && (
+          <div style={{ background: `${T.red}10`, border: `1px solid ${T.red}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: T.red }}>
+            ✗ {sendResult.error}
+          </div>
+        )}
+
         {/* Actions */}
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button onClick={onClose} style={{ background: T.navyMid, color: T.grayLight, border: `1px solid ${T.navyMid}`, padding: "10px 20px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>Schließen</button>
           <button onClick={openMailto} style={{
-            background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
-            color: T.navy, border: "none", padding: "10px 20px", borderRadius: 10,
-            fontSize: 14, fontWeight: 700, cursor: "pointer",
-          }}>In E-Mail-Client öffnen</button>
+            background: T.navyMid, color: T.grayLight, border: `1px solid ${T.navyMid}`,
+            padding: "10px 20px", borderRadius: 10, fontSize: 14, cursor: "pointer",
+          }}>E-Mail-Client öffnen</button>
+          <button onClick={handleSendDirect} disabled={sending || sendResult?.success} style={{
+            background: sendResult?.success ? T.green : `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+            color: sendResult?.success ? T.whiteTrue : T.navy,
+            border: "none", padding: "10px 20px", borderRadius: 10,
+            fontSize: 14, fontWeight: 700, cursor: sending || sendResult?.success ? "default" : "pointer",
+            opacity: sending ? 0.6 : 1,
+          }}>{sending ? "Wird gesendet..." : sendResult?.success ? "✓ Versendet" : "Direkt senden"}</button>
         </div>
       </div>
     </div>
