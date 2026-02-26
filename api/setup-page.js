@@ -1,4 +1,9 @@
-<!DOCTYPE html>
+// Vercel Serverless Function — serves the setup HTML page
+// Access: GET /api/setup-page
+
+export default function handler(req, res) {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(`<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
@@ -33,158 +38,126 @@
   </style>
 </head>
 <body>
-  <h1>Stripe & Admin Setup</h1>
+  <h1>Stripe &amp; Admin Setup</h1>
   <p class="sub">Einmalige Einrichtung — erstellt Stripe-Produkte und Admin-Accounts</p>
 
   <div class="warn">
-    Diese Seite ist nur für die einmalige Einrichtung. Nach Nutzung bitte <code>public/stripe-setup.html</code> löschen oder die Vercel-Umgebungsvariable SEED_SECRET entfernen.
+    Diese Seite ist nur für die einmalige Einrichtung. Nach Nutzung bitte die Vercel-Umgebungsvariable SEED_SECRET entfernen.
   </div>
 
-  <!-- STRIPE SETUP -->
   <div class="card">
     <h2 style="margin-bottom: 16px;">1. Stripe-Produkte erstellen</h2>
     <p style="color: #c8d6e5; font-size: 14px; margin-bottom: 16px;">
-      Erstellt alle 11 Produkte + Preise in Stripe (6 Abos + 5 Add-Ons). Die zurückgegebenen Price-IDs müssen in <code>pricing.js</code> eingetragen werden.
+      Erstellt alle 11 Produkte + Preise in Stripe (6 Abos + 5 Add-Ons). Die Price-IDs müssen in <code>pricing.js</code> eingetragen werden.
     </p>
     <label for="secret1">SEED_SECRET</label>
     <input type="password" id="secret1" placeholder="z.B. gt-seed-admin-einmalig" />
-    <button class="btn-gold" id="btnStripe" onclick="runStripeSetup()">
-      Stripe-Produkte erstellen
-    </button>
+    <button class="btn-gold" id="btnStripe" onclick="runStripeSetup()">Stripe-Produkte erstellen</button>
     <div id="stripeResult"></div>
   </div>
 
-  <!-- ADMIN SEED -->
   <div class="card section">
     <h2 style="margin-bottom: 16px;">2. Admin-Accounts anlegen</h2>
     <p style="color: #c8d6e5; font-size: 14px; margin-bottom: 16px;">
-      Erstellt die Accounts für Alexander (super_admin) und Ulrich (admin). Die generierten Passwörter werden <strong>nur einmal</strong> angezeigt — sofort notieren!
+      Erstellt Alexander (super_admin) und Ulrich (admin). Passwörter werden <strong>nur einmal</strong> angezeigt!
     </p>
     <label for="secret2">SEED_SECRET</label>
     <input type="password" id="secret2" placeholder="z.B. gt-seed-admin-einmalig" />
-    <button class="btn-seed" id="btnSeed" onclick="runSeedAdmin()">
-      Admin-Accounts erstellen
-    </button>
+    <button class="btn-seed" id="btnSeed" onclick="runSeedAdmin()">Admin-Accounts erstellen</button>
     <div id="seedResult"></div>
   </div>
 
   <script>
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
     async function runStripeSetup() {
-      const secret = document.getElementById('secret1').value.trim();
+      var secret = document.getElementById('secret1').value.trim();
       if (!secret) { alert('Bitte SEED_SECRET eingeben'); return; }
-
-      const btn = document.getElementById('btnStripe');
-      const result = document.getElementById('stripeResult');
+      var btn = document.getElementById('btnStripe');
+      var result = document.getElementById('stripeResult');
       btn.disabled = true;
-      result.innerHTML = '<p style="margin-top:16px"><span class="spinner"></span> Erstelle Produkte in Stripe... (kann 10-20 Sekunden dauern)</p>';
-
+      result.innerHTML = '<p style="margin-top:16px"><span class="spinner"></span> Erstelle Produkte in Stripe... (10-20 Sekunden)</p>';
       try {
-        const res = await fetch('/api/setup-stripe', {
+        var res = await fetch('/api/setup-stripe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ secret }),
+          body: JSON.stringify({ secret: secret })
         });
-        const data = await res.json();
-
+        var data = await res.json();
         if (!res.ok) {
-          result.innerHTML = `<p class="error" style="margin-top:16px">Fehler: ${data.error || res.statusText}</p>`;
+          result.innerHTML = '<p class="error" style="margin-top:16px">Fehler: ' + escHtml(data.error || res.statusText) + '</p>';
           btn.disabled = false;
           return;
         }
-
-        // Build results table
-        let html = '<h3 class="success" style="margin-top:16px">Erfolgreich erstellt!</h3>';
-
-        // Product list
-        html += '<div style="margin-top:12px">';
-        for (const [id, info] of Object.entries(data.results)) {
+        var html = '<h3 class="success" style="margin-top:16px">Erfolgreich erstellt!</h3><div style="margin-top:12px">';
+        for (var id in data.results) {
+          var info = data.results[id];
           if (info.error) {
-            html += `<div class="result-item"><span>${id}</span><span class="error">${info.error}</span></div>`;
+            html += '<div class="result-item"><span>' + escHtml(id) + '</span><span class="error">' + escHtml(info.error) + '</span></div>';
           } else {
-            html += `<div class="result-item"><span>${id} (${info.amount}, ${info.type})</span><span class="price-id">${info.priceId}</span></div>`;
+            html += '<div class="result-item"><span>' + escHtml(id) + ' (' + escHtml(info.amount) + ', ' + escHtml(info.type) + ')</span><span class="price-id">' + escHtml(info.priceId) + '</span></div>';
           }
         }
         html += '</div>';
-
-        // Copyable snippet
         if (data.pricingJsSnippet) {
           html += '<h3 style="margin-top:24px">pricing.js Snippet:</h3>';
-          html += `<pre id="snippet">${escHtml(data.pricingJsSnippet)}</pre>`;
-          html += '<button class="btn-copy" onclick="copySnippet()">Snippet kopieren</button>';
+          html += '<pre id="snippet">' + escHtml(data.pricingJsSnippet) + '</pre>';
+          html += '<button class="btn-copy" onclick="copyEl(\\'snippet\\')">Snippet kopieren</button>';
         }
-
-        // Raw JSON
-        html += '<h3 style="margin-top:24px">Vollständige Antwort:</h3>';
-        html += `<pre id="rawJson">${escHtml(JSON.stringify(data, null, 2))}</pre>`;
-        html += '<button class="btn-copy" onclick="copyRaw()">JSON kopieren</button>';
-
+        html += '<h3 style="margin-top:24px">Vollständige Antwort (JSON):</h3>';
+        html += '<pre id="rawJson">' + escHtml(JSON.stringify(data, null, 2)) + '</pre>';
+        html += '<button class="btn-copy" onclick="copyEl(\\'rawJson\\')">JSON kopieren</button>';
         result.innerHTML = html;
       } catch (err) {
-        result.innerHTML = `<p class="error" style="margin-top:16px">Netzwerk-Fehler: ${err.message}</p>`;
+        result.innerHTML = '<p class="error" style="margin-top:16px">Netzwerk-Fehler: ' + escHtml(err.message) + '</p>';
         btn.disabled = false;
       }
     }
 
     async function runSeedAdmin() {
-      const secret = document.getElementById('secret2').value.trim();
+      var secret = document.getElementById('secret2').value.trim();
       if (!secret) { alert('Bitte SEED_SECRET eingeben'); return; }
-
-      const btn = document.getElementById('btnSeed');
-      const result = document.getElementById('seedResult');
+      var btn = document.getElementById('btnSeed');
+      var result = document.getElementById('seedResult');
       btn.disabled = true;
       result.innerHTML = '<p style="margin-top:16px"><span class="spinner"></span> Erstelle Admin-Accounts...</p>';
-
       try {
-        const res = await fetch('/api/seed-admin', {
+        var res = await fetch('/api/seed-admin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ secret }),
+          body: JSON.stringify({ secret: secret })
         });
-        const data = await res.json();
-
+        var data = await res.json();
         if (!res.ok) {
-          result.innerHTML = `<p class="error" style="margin-top:16px">Fehler: ${data.error || res.statusText}</p>`;
+          result.innerHTML = '<p class="error" style="margin-top:16px">Fehler: ' + escHtml(data.error || res.statusText) + '</p>';
           btn.disabled = false;
           return;
         }
-
-        let html = '<h3 class="success" style="margin-top:16px">Admin-Accounts erstellt!</h3>';
-        html += '<div class="warn" style="margin-top:12px">ACHTUNG: Diese Passwörter werden nur EINMAL angezeigt. Jetzt sofort sicher abspeichern!</div>';
-
-        const accounts = data.accounts || data.results || [];
-        for (const acc of accounts) {
-          html += `<div class="password-box">
-            <p><strong>${acc.email}</strong> — ${acc.role || ''} (${acc.status || ''})</p>
-            <p>Passwort: <span class="pw">${escHtml(acc.password || acc.tempPassword || '(siehe Antwort)')}</span></p>
-            <p style="font-size:12px;color:#6b7a8d;margin-top:4px">${acc.error ? '<span class="error">' + escHtml(acc.error) + '</span>' : 'Erfolgreich'}</p>
-          </div>`;
+        var html = '<h3 class="success" style="margin-top:16px">Admin-Accounts erstellt!</h3>';
+        html += '<div class="warn" style="margin-top:12px">ACHTUNG: Passw\\u00f6rter werden nur EINMAL angezeigt. Jetzt sofort sicher abspeichern!</div>';
+        var accounts = data.accounts || data.results || [];
+        for (var i = 0; i < accounts.length; i++) {
+          var acc = accounts[i];
+          html += '<div class="password-box">';
+          html += '<p><strong>' + escHtml(acc.email) + '</strong> — ' + escHtml(acc.role || '') + ' (' + escHtml(acc.status || '') + ')</p>';
+          html += '<p>Passwort: <span class="pw">' + escHtml(acc.password || acc.tempPassword || '(siehe JSON)') + '</span></p>';
+          html += '</div>';
         }
-
         html += '<h3 style="margin-top:24px">Vollständige Antwort:</h3>';
-        html += `<pre>${escHtml(JSON.stringify(data, null, 2))}</pre>`;
-
+        html += '<pre>' + escHtml(JSON.stringify(data, null, 2)) + '</pre>';
         result.innerHTML = html;
       } catch (err) {
-        result.innerHTML = `<p class="error" style="margin-top:16px">Netzwerk-Fehler: ${err.message}</p>`;
+        result.innerHTML = '<p class="error" style="margin-top:16px">Netzwerk-Fehler: ' + escHtml(err.message) + '</p>';
         btn.disabled = false;
       }
     }
 
-    function copySnippet() {
-      navigator.clipboard.writeText(document.getElementById('snippet').textContent);
-      event.target.textContent = 'Kopiert!';
-      setTimeout(() => event.target.textContent = 'Snippet kopieren', 2000);
-    }
-
-    function copyRaw() {
-      navigator.clipboard.writeText(document.getElementById('rawJson').textContent);
-      event.target.textContent = 'Kopiert!';
-      setTimeout(() => event.target.textContent = 'JSON kopieren', 2000);
-    }
-
-    function escHtml(s) {
-      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    function copyEl(id) {
+      navigator.clipboard.writeText(document.getElementById(id).textContent);
     }
   </script>
 </body>
-</html>
+</html>`);
+}
