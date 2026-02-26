@@ -12,6 +12,7 @@ const Admin = lazy(() => import("./Admin"));
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Pricing = lazy(() => import("./pages/Pricing"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SegmentHub = lazy(() => import("./pages/SegmentHub"));
 const SegmentLanding = lazy(() => import("./pages/SegmentLanding"));
 const Register = lazy(() => import("./pages/Register"));
@@ -251,6 +252,7 @@ export default function App() {
       <Routes>
         {/* Auth */}
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Admin */}
         <Route path="/admin/*" element={<Admin onBack={() => window.location.href = "/"} />} />
