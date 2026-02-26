@@ -34,8 +34,12 @@ export default function ResetPassword() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!password || password.length < 6) {
-      setError("Passwort muss mindestens 6 Zeichen lang sein.");
+    if (!password || password.length < 8) {
+      setError("Passwort muss mindestens 8 Zeichen lang sein.");
+      return;
+    }
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      setError("Passwort muss Groß-, Kleinbuchstaben und eine Zahl enthalten.");
       return;
     }
     if (password !== confirm) {
@@ -144,7 +148,7 @@ export default function ResetPassword() {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="Mindestens 6 Zeichen"
+              placeholder="Min. 8 Zeichen, Groß-/Kleinbuchstaben + Zahl"
               autoFocus
               autoComplete="new-password"
               style={{

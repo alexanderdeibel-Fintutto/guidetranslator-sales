@@ -59,9 +59,12 @@ function wrapHtml(body, { recipientName, ctaUrl, ctaLabel }) {
         </td></tr>
         <!-- Footer -->
         <tr><td style="text-align:center;padding:24px 0 8px">
-          <div style="color:#6b7a8d;font-size:11px;line-height:1.6">
-            GuideTranslator &mdash; KI-gestützte Echtzeit-Übersetzung für Kreuzfahrt-Landausflüge
-            <br>© ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.
+          <div style="color:#6b7a8d;font-size:11px;line-height:1.8">
+            GuideTranslator &mdash; KI-gest&uuml;tzte Echtzeit-&Uuml;bersetzung
+            <br>&copy; ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.
+            <br><a href="mailto:enterprise@guidetranslator.com?subject=Abmeldung" style="color:#6b7a8d;text-decoration:underline">Abmelden</a>
+            &nbsp;&middot;&nbsp;
+            <a href="${process.env.APP_URL || 'https://sales.guidetranslator.com'}/datenschutz" style="color:#6b7a8d;text-decoration:underline">Datenschutz</a>
           </div>
         </td></tr>
       </table>

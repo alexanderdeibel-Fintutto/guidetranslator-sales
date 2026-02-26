@@ -70,7 +70,9 @@ export default async function handler(req, res) {
           <div style="color:#94a3b8;font-size:13px;margin-top:20px">Gültig für 15 Minuten. Bitte geben Sie diesen Code auf der Registrierungsseite ein.</div>
         </td></tr>
         <tr><td style="text-align:center;padding:24px 0 8px">
-          <div style="color:#6b7a8d;font-size:11px">&copy; ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.</div>
+          <div style="color:#6b7a8d;font-size:11px;line-height:1.8">&copy; ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.
+            <br><a href="mailto:enterprise@guidetranslator.com?subject=Abmeldung" style="color:#6b7a8d;text-decoration:underline">Abmelden</a>
+          </div>
         </td></tr>
       </table>
     </td></tr>

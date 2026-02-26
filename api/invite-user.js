@@ -98,10 +98,15 @@ enterprise@guidetranslator.com`;
 }
 
 function generateTempPassword() {
-  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let pw = "";
-  for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw;
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const all = lower + upper + digits;
+  let pw = lower[Math.floor(Math.random() * lower.length)]
+    + upper[Math.floor(Math.random() * upper.length)]
+    + digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 3; i < 12; i++) pw += all[Math.floor(Math.random() * all.length)];
+  return pw.split("").sort(() => Math.random() - 0.5).join("");
 }
 
 import { setCorsHeaders } from "./_cors.js";

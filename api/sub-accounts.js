@@ -16,10 +16,72 @@ function getSupabaseAdmin() {
 }
 
 function generateTempPassword() {
-  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let pw = "";
-  for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw;
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const all = lower + upper + digits;
+  // Guarantee at least one of each type
+  let pw = lower[Math.floor(Math.random() * lower.length)]
+    + upper[Math.floor(Math.random() * upper.length)]
+    + digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 3; i < 12; i++) pw += all[Math.floor(Math.random() * all.length)];
+  // Shuffle
+  return pw.split("").sort(() => Math.random() - 0.5).join("");
+}
+
+async function sendExistingUserNotification(email, name, companyName) {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) return;
+
+  const from = process.env.EMAIL_FROM || "GuideTranslator <onboarding@resend.dev>";
+  const appUrl = process.env.APP_URL || "https://sales.guidetranslator.com";
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0a1628;font-family:'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a1628;padding:32px 16px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+        <tr><td style="text-align:center;padding:24px 0 32px">
+          <div style="display:inline-block;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#c8a84e,#a08030);text-align:center;line-height:52px;font-weight:700;font-size:18px;color:#0a1628;font-family:Georgia,serif">GT</div>
+          <div style="color:#f0f2f5;font-family:Georgia,serif;font-size:20px;font-weight:600;margin-top:12px">GuideTranslator</div>
+        </td></tr>
+        <tr><td style="background:#132038;border-radius:16px;padding:32px 28px;border:1px solid #1a2d4a">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:0 0 12px;color:#f0f2f5;font-size:16px">Hallo ${name},</td></tr>
+            <tr><td style="padding:4px 0;color:#c8d6e5;font-size:15px;line-height:1.7">
+              <strong style="color:#c8a84e">${companyName}</strong> hat Sie als Benutzer zu ihrem GuideTranslator-Account hinzugefügt.
+              Sie können sich mit Ihren bestehenden Zugangsdaten anmelden.
+            </td></tr>
+            <tr><td style="padding:16px 0;text-align:center">
+              <a href="${appUrl}/login" style="display:inline-block;background:linear-gradient(135deg,#c8a84e,#a08030);color:#0a1628;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:700;font-size:16px">Anmelden</a>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="text-align:center;padding:24px 0 8px">
+          <div style="color:#6b7a8d;font-size:11px;line-height:1.8">&copy; ${new Date().getFullYear()} GuideTranslator.
+            <br><a href="mailto:enterprise@guidetranslator.com?subject=Abmeldung" style="color:#6b7a8d;text-decoration:underline">Abmelden</a>
+          </div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from, to: [email],
+        subject: `${companyName} hat Sie zu GuideTranslator hinzugefügt`,
+        html,
+        text: `Hallo ${name},\n\n${companyName} hat Sie als Benutzer zu ihrem GuideTranslator-Account hinzugefügt.\n\nSie können sich mit Ihren bestehenden Zugangsdaten anmelden: ${appUrl}/login`,
+      }),
+    });
+  } catch (err) {
+    console.error("Existing user notification email failed:", err);
+  }
 }
 
 async function sendSubAccountEmail(email, name, tempPassword, companyName) {
@@ -63,7 +125,9 @@ async function sendSubAccountEmail(email, name, tempPassword, companyName) {
           </table>
         </td></tr>
         <tr><td style="text-align:center;padding:24px 0 8px">
-          <div style="color:#6b7a8d;font-size:11px">&copy; ${new Date().getFullYear()} GuideTranslator.</div>
+          <div style="color:#6b7a8d;font-size:11px;line-height:1.8">&copy; ${new Date().getFullYear()} GuideTranslator.
+            <br><a href="mailto:enterprise@guidetranslator.com?subject=Abmeldung" style="color:#6b7a8d;text-decoration:underline">Abmelden</a>
+          </div>
         </td></tr>
       </table>
     </td></tr>
@@ -137,7 +201,20 @@ export default async function handler(req, res) {
   try {
     // ─── LIST sub-accounts ─────────────────────────────────
     if (req.method === "GET") {
-      const targetOrgId = isAdmin ? (req.query?.orgId || orgId) : orgId;
+      let targetOrgId = orgId;
+      if (isAdmin && req.query?.orgId) {
+        // Admins can only view orgs they own
+        const { data: ownerCheck } = await supabase
+          .from("gt_organizations")
+          .select("id")
+          .eq("id", req.query.orgId)
+          .eq("owner_user_id", caller.id)
+          .single();
+        if (!ownerCheck && callerRole.role !== "super_admin") {
+          return res.status(403).json({ error: "Keine Berechtigung für diese Organisation" });
+        }
+        targetOrgId = req.query.orgId;
+      }
 
       const { data: subRoles } = await supabase
         .from("gt_roles")
@@ -149,17 +226,17 @@ export default async function handler(req, res) {
         return res.status(200).json({ subAccounts: [] });
       }
 
-      // Get user details for each sub-account
-      const { data: allUsers } = await supabase.auth.admin.listUsers();
-      const subAccounts = subRoles.map(sr => {
-        const u = allUsers?.users?.find(u => u.id === sr.user_id);
-        return {
+      // Get user details for sub-accounts (only fetch needed users)
+      const subAccounts = [];
+      for (const sr of subRoles) {
+        const { data: { user: u } } = await supabase.auth.admin.getUserById(sr.user_id);
+        subAccounts.push({
           id: sr.user_id,
           email: u?.email || "—",
           name: u?.user_metadata?.name || "—",
           created_at: sr.created_at,
-        };
-      });
+        });
+      }
 
       return res.status(200).json({ subAccounts });
     }
@@ -171,39 +248,42 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "E-Mail und Name erforderlich" });
       }
 
-      // Check if user already exists
-      const { data: allUsers } = await supabase.auth.admin.listUsers();
-      const existingUser = allUsers?.users?.find(u => u.email === email);
-
-      if (existingUser) {
-        // Check if already a sub-account in this org
-        const { data: existingRole } = await supabase
-          .from("gt_roles")
-          .select("role, organization_id")
-          .eq("user_id", existingUser.id)
-          .single();
-
-        if (existingRole) {
-          return res.status(400).json({ error: "Dieser Benutzer hat bereits einen Account" });
-        }
-      }
-
+      // Try to create new user; if email exists, Supabase returns an error
       let userId;
-      let tempPassword = null;
+      let tempPassword = generateTempPassword();
+      let isNewUser = true;
 
-      if (existingUser) {
-        userId = existingUser.id;
-      } else {
-        tempPassword = generateTempPassword();
-        const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
-          email,
-          password: tempPassword,
-          email_confirm: true,
-          user_metadata: { name },
-        });
-        if (createError) {
+      const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: true,
+        user_metadata: { name },
+      });
+
+      if (createError) {
+        // User probably already exists — look up by email
+        if (createError.message?.includes("already been registered") || createError.message?.includes("already exists")) {
+          const { data: { users } } = await supabase.auth.admin.listUsers({ filter: email });
+          const existingUser = users?.find(u => u.email === email);
+          if (!existingUser) {
+            return res.status(400).json({ error: `Account-Erstellung fehlgeschlagen: ${createError.message}` });
+          }
+          // Check if already has a role
+          const { data: existingRole } = await supabase
+            .from("gt_roles")
+            .select("role, organization_id")
+            .eq("user_id", existingUser.id)
+            .single();
+          if (existingRole) {
+            return res.status(400).json({ error: "Dieser Benutzer hat bereits einen Account" });
+          }
+          userId = existingUser.id;
+          tempPassword = null;
+          isNewUser = false;
+        } else {
           return res.status(400).json({ error: `Account-Erstellung fehlgeschlagen: ${createError.message}` });
         }
+      } else {
         userId = newUser.user.id;
       }
 
@@ -217,17 +297,20 @@ export default async function handler(req, res) {
         created_by: caller.id,
       }, { onConflict: "user_id" });
 
-      // Send invite email
+      // Send email notification
+      const companyName = caller.user_metadata?.company || caller.user_metadata?.name || "Ihr Unternehmen";
       if (tempPassword) {
-        const companyName = caller.user_metadata?.company || caller.user_metadata?.name || "Ihr Unternehmen";
         await sendSubAccountEmail(email, name, tempPassword, companyName);
+      } else {
+        // Existing user — notify them they've been added
+        await sendExistingUserNotification(email, name, companyName);
       }
 
       return res.status(200).json({
         success: true,
         userId,
         isNew: !!tempPassword,
-        emailSent: !!tempPassword,
+        emailSent: true,
       });
     }
 

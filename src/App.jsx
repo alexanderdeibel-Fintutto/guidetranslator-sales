@@ -6,6 +6,7 @@ import { Icon } from "./components/Icon";
 import { useAuth } from "./lib/AuthContext";
 import { upsertLead, loadLeadByEmail, saveCalculation, loadCalculations, deleteCalculation, submitContactRequest, lsLoad, lsSave, lsClear } from "./lib/supabaseHelpers";
 import { getSegment } from "./config/segments";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Pages — lazy-loaded for code-splitting
 const Admin = lazy(() => import("./Admin"));
@@ -258,7 +259,7 @@ export default function App() {
         <Route path="/admin/*" element={<Admin onBack={() => window.location.href = "/"} />} />
 
         {/* Dashboard */}
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<ErrorBoundary label="Dashboard"><Dashboard /></ErrorBoundary>} />
 
         {/* HowTo */}
         <Route path="/howto" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><HowTo /></Layout>} />
@@ -267,9 +268,9 @@ export default function App() {
         <Route path="/setup" element={<Setup />} />
 
         {/* Segment Routes */}
-        <Route path="/:segment/pricing" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><Pricing /></Layout>} />
+        <Route path="/:segment/pricing" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><ErrorBoundary label="Preise"><Pricing /></ErrorBoundary></Layout>} />
         <Route path="/:segment/register" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><Register onRegister={handleRegister} prefill={invitePrefill} /></Layout>} />
-        <Route path="/:segment/calculator" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><Calculator onSave={handleSaveCalc} lead={lead} /></RequireAuth></Layout>} />
+        <Route path="/:segment/calculator" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><ErrorBoundary label="Kalkulator"><Calculator onSave={handleSaveCalc} lead={lead} /></ErrorBoundary></RequireAuth></Layout>} />
         <Route path="/:segment/saved" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><Saved calcs={savedCalcs} onDelete={handleDeleteCalc} /></RequireAuth></Layout>} />
         <Route path="/:segment/contact" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><Contact lead={lead} calcs={savedCalcs} onSubmit={handleContact} /></RequireAuth></Layout>} />
         <Route path="/:segment/offer" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><PostOffer lead={lead} calcs={savedCalcs} onTrackTest={handleTrackTest} /></RequireAuth></Layout>} />

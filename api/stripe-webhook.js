@@ -45,10 +45,15 @@ function getSupabaseAdmin() {
 }
 
 function generateTempPassword() {
-  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let pw = "";
-  for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw;
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const all = lower + upper + digits;
+  let pw = lower[Math.floor(Math.random() * lower.length)]
+    + upper[Math.floor(Math.random() * upper.length)]
+    + digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 3; i < 12; i++) pw += all[Math.floor(Math.random() * all.length)];
+  return pw.split("").sort(() => Math.random() - 0.5).join("");
 }
 
 async function sendWelcomeEmail(email, name, tempPassword, tierName) {
@@ -93,7 +98,11 @@ async function sendWelcomeEmail(email, name, tempPassword, tierName) {
           </table>
         </td></tr>
         <tr><td style="text-align:center;padding:24px 0 8px">
-          <div style="color:#6b7a8d;font-size:11px">&copy; ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.</div>
+          <div style="color:#6b7a8d;font-size:11px;line-height:1.8">&copy; ${new Date().getFullYear()} GuideTranslator. Alle Rechte vorbehalten.
+            <br><a href="mailto:enterprise@guidetranslator.com?subject=Abmeldung" style="color:#6b7a8d;text-decoration:underline">Abmelden</a>
+            &nbsp;&middot;&nbsp;
+            <a href="${appUrl}/datenschutz" style="color:#6b7a8d;text-decoration:underline">Datenschutz</a>
+          </div>
         </td></tr>
       </table>
     </td></tr>
@@ -266,6 +275,20 @@ export default async function handler(req, res) {
   const event = JSON.parse(rawBody);
   const supabase = getSupabaseAdmin();
 
+  // Idempotency check — skip already-processed events
+  if (supabase) {
+    try {
+      const { data: existing } = await supabase
+        .from("gt_webhook_events")
+        .select("id")
+        .eq("id", event.id)
+        .single();
+      if (existing) {
+        return res.status(200).json({ received: true, skipped: true });
+      }
+    } catch {} // Table might not exist yet — proceed
+  }
+
   try {
     switch (event.type) {
       // ─── Checkout completed → activate subscription ──────
@@ -432,6 +455,17 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("Webhook handler error:", err);
     // Still return 200 to prevent Stripe retries
+  }
+
+  // Mark event as processed (idempotency)
+  if (supabase) {
+    try {
+      await supabase.from("gt_webhook_events").upsert({
+        id: event.id,
+        event_type: event.type,
+        metadata: { customer: event.data?.object?.customer || null },
+      }, { onConflict: "id" });
+    } catch {} // Non-critical — best effort
   }
 
   return res.status(200).json({ received: true });
