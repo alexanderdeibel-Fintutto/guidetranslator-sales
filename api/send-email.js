@@ -70,14 +70,15 @@ function wrapHtml(body, { recipientName, ctaUrl, ctaLabel }) {
 </body></html>`;
 }
 
+import { setCorsHeaders } from "./_cors.js";
+import { applyRateLimit } from "./_ratelimit.js";
+
 export default async function handler(req, res) {
-  // CORS headers for the frontend
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (applyRateLimit(req, res, { endpoint: "email", limit: 5, windowMs: 60_000 })) return;
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {

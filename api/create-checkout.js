@@ -3,30 +3,37 @@
 //   STRIPE_SECRET_KEY  — from Stripe Dashboard (sk_live_xxx or sk_test_xxx)
 //   APP_URL            — e.g. "https://sales.guidetranslator.com"
 
+import { setCorsHeaders } from "./_cors.js";
+import { applyRateLimit } from "./_ratelimit.js";
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (applyRateLimit(req, res, { endpoint: "checkout", limit: 10, windowMs: 60_000 })) return;
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) return res.status(500).json({ error: "STRIPE_SECRET_KEY not configured" });
 
-  const { priceId, customerEmail, metadata, mode } = req.body;
+  const { priceId, customerEmail, metadata, mode, segment } = req.body;
   if (!priceId) return res.status(400).json({ error: "Missing priceId" });
 
   // mode: "subscription" (default) or "payment" (for one-time add-ons)
   const checkoutMode = mode === "payment" ? "payment" : "subscription";
   const appUrl = process.env.APP_URL || "https://sales.guidetranslator.com";
 
+  // Build segment-aware redirect URLs
+  const seg = segment || "kreuzfahrt";
+  const successUrl = `${appUrl}/${seg}/offer?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = `${appUrl}/${seg}/pricing?checkout=cancelled`;
+
   try {
     // Create Checkout Session via Stripe API directly (no SDK needed)
     const params = new URLSearchParams();
     params.append("mode", checkoutMode);
-    params.append("success_url", `${appUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
-    params.append("cancel_url", `${appUrl}/pricing?checkout=cancelled`);
+    params.append("success_url", successUrl);
+    params.append("cancel_url", cancelUrl);
     params.append("line_items[0][price]", priceId);
     params.append("line_items[0][quantity]", "1");
     params.append("allow_promotion_codes", "true");

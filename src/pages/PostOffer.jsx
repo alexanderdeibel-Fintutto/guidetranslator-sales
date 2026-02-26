@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { T, font } from "../lib/tokens";
 import { Icon } from "../components/Icon";
 import { fmtEur } from "../lib/helpers";
@@ -33,6 +33,8 @@ END:VCALENDAR`;
 export default function PostOffer({ lead, calcs, onTrackTest }) {
   const { segment } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const checkoutSuccess = searchParams.get("checkout") === "success";
   const seg = getSegment(segment);
   const best = calcs?.length ? calcs.reduce((a, b) => (b.savings || 0) > (a.savings || 0) ? b : a, calcs[0]) : null;
 
@@ -54,12 +56,28 @@ export default function PostOffer({ lead, calcs, onTrackTest }) {
 
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
+      {checkoutSuccess && (
+        <div style={{
+          background: `${T.green}12`, border: `1px solid ${T.green}40`,
+          borderRadius: 12, padding: "16px 24px", marginBottom: 32,
+          color: T.green, fontSize: 15, fontWeight: 600,
+        }}>
+          Zahlung erfolgreich! Ihr Abonnement wird in Kürze aktiviert.
+        </div>
+      )}
+
       <div className="fu" style={{ width: 80, height: 80, borderRadius: "50%", margin: "0 auto 24px", background: `${T.green}15`, border: `2px solid ${T.green}40`, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Icon name="check" size={40} color={T.green} />
       </div>
-      <h2 className="fu1" style={{ fontFamily: font, fontSize: 32, fontWeight: 700, marginBottom: 12 }}>Anfrage erhalten!</h2>
+      <h2 className="fu1" style={{ fontFamily: font, fontSize: 32, fontWeight: 700, marginBottom: 12 }}>
+        {checkoutSuccess ? "Abonnement aktiviert!" : "Anfrage erhalten!"}
+      </h2>
       <p className="fu2" style={{ color: T.grayLight, fontSize: 16, lineHeight: 1.7, marginBottom: 32 }}>
-        Vielen Dank, <strong style={{ color: T.whiteTrue }}>{lead?.name}</strong>. Unser Team meldet sich innerhalb von 24 Stunden mit einem individuellen Angebot für <strong style={{ color: seg.color }}>{lead?.company}</strong>.
+        {checkoutSuccess ? (
+          <>Vielen Dank, <strong style={{ color: T.whiteTrue }}>{lead?.name}</strong>. Ihr Plan für <strong style={{ color: seg.color }}>{lead?.company}</strong> ist aktiv. Sie können jetzt direkt loslegen.</>
+        ) : (
+          <>Vielen Dank, <strong style={{ color: T.whiteTrue }}>{lead?.name}</strong>. Unser Team meldet sich innerhalb von 24 Stunden mit einem individuellen Angebot für <strong style={{ color: seg.color }}>{lead?.company}</strong>.</>
+        )}
       </p>
 
       {best && (

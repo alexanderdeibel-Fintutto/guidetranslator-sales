@@ -36,13 +36,15 @@ function generatePassword() {
   return pw;
 }
 
+import { setCorsHeaders } from "./_cors.js";
+import { applyRateLimit } from "./_ratelimit.js";
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (applyRateLimit(req, res, { endpoint: "seed", limit: 3, windowMs: 300_000 })) return;
 
   // Verify seed secret
   const seedSecret = process.env.SEED_SECRET;

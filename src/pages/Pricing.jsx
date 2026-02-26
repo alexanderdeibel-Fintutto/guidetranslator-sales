@@ -3,8 +3,16 @@ import { useParams, Link } from "react-router-dom";
 import { T, font, fontSans } from "../lib/tokens";
 import { getSegment } from "../config/segments";
 import { getTiersForSegment, formatPrice, ADDONS } from "../config/pricing";
+import { lsLoad } from "../lib/supabaseHelpers";
 
-async function startCheckout(priceId, { mode = "subscription", tierId, segment } = {}) {
+function getLeadEmail() {
+  try {
+    const data = lsLoad();
+    return data?.lead?.email || null;
+  } catch { return null; }
+}
+
+async function startCheckout(priceId, { mode = "subscription", tierId, segment, customerEmail } = {}) {
   if (!priceId) return;
   try {
     const res = await fetch("/api/create-checkout", {
@@ -13,6 +21,8 @@ async function startCheckout(priceId, { mode = "subscription", tierId, segment }
       body: JSON.stringify({
         priceId,
         mode,
+        segment: segment || "",
+        customerEmail: customerEmail || undefined,
         metadata: { tier_id: tierId || "", segment: segment || "" },
       }),
     });
@@ -154,7 +164,7 @@ export default function Pricing() {
                     disabled={loading === tier.id}
                     onClick={async () => {
                       setLoading(tier.id);
-                      await startCheckout(tier.stripePriceId, { mode: "subscription", tierId: tier.id, segment });
+                      await startCheckout(tier.stripePriceId, { mode: "subscription", tierId: tier.id, segment, customerEmail: getLeadEmail() });
                       setLoading(null);
                     }}
                     style={{
@@ -206,7 +216,7 @@ export default function Pricing() {
                 disabled={loading === addon.id}
                 onClick={async () => {
                   setLoading(addon.id);
-                  await startCheckout(addon.stripePriceId, { mode: "payment", tierId: addon.id, segment });
+                  await startCheckout(addon.stripePriceId, { mode: "payment", tierId: addon.id, segment, customerEmail: getLeadEmail() });
                   setLoading(null);
                 }}
                 style={{
