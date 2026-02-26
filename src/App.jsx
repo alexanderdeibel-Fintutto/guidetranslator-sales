@@ -9,6 +9,8 @@ import { getSegment } from "./config/segments";
 // Pages
 import Admin from "./Admin";
 import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Pricing from "./pages/Pricing";
 import SegmentHub from "./pages/SegmentHub";
 import SegmentLanding from "./pages/SegmentLanding";
 import Register from "./pages/Register";
@@ -58,6 +60,7 @@ function Nav({ lead, savedCalcs, onLogout }) {
             <Link to={`/${segment}/contact`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Angebot</Link>
           </>
         )}
+        {segment && <Link to={`/${segment}/pricing`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Preise</Link>}
         <Link to="/howto" style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Anleitung</Link>
         {lead && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${T.navyMid}` }}>
@@ -233,10 +236,14 @@ export default function App() {
         {/* Admin */}
         <Route path="/admin/*" element={<Admin onBack={() => window.location.href = "/"} />} />
 
+        {/* Dashboard */}
+        <Route path="/dashboard" element={<Dashboard />} />
+
         {/* HowTo */}
         <Route path="/howto" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><HowTo /></Layout>} />
 
         {/* Segment Routes */}
+        <Route path="/:segment/pricing" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><Pricing /></Layout>} />
         <Route path="/:segment/register" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><Register onRegister={handleRegister} prefill={invitePrefill} /></Layout>} />
         <Route path="/:segment/calculator" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><Calculator onSave={handleSaveCalc} lead={lead} /></RequireAuth></Layout>} />
         <Route path="/:segment/saved" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><RequireAuth lead={lead}><Saved calcs={savedCalcs} onDelete={handleDeleteCalc} /></RequireAuth></Layout>} />
