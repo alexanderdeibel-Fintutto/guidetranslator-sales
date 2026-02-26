@@ -290,6 +290,7 @@ function AdminDashboard({ onBack }) {
   const [selectedLead, setSelectedLead] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(null); // leadId or null
+  const [bulkEmailLeadIds, setBulkEmailLeadIds] = useState(null); // array of leadIds or null
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Load all leads with calculation counts
@@ -387,37 +388,54 @@ function AdminDashboard({ onBack }) {
               ))}
             </div>
 
-            {/* Overdue Follow-ups Banner */}
+            {/* Empfohlene Aktionen */}
             {(() => {
               const overdue = leads.filter(l => l.follow_up_date && isOverdue(l.follow_up_date));
-              const upcoming = leads.filter(l => l.follow_up_date && !isOverdue(l.follow_up_date));
-              if (!overdue.length && !upcoming.length) return null;
+              const needsInvite = leads.filter(l => (!l.pipeline_stage || l.pipeline_stage === "neu") && !l.invite_token);
+              const invited = leads.filter(l => l.pipeline_stage === "eingeladen" && !l.follow_up_date);
+              const actions = [
+                ...overdue.map(l => ({ lead: l, type: "overdue", label: `Wiedervorlage: ${fmtFollowUp(l.follow_up_date)}`, color: T.red, template: "followup" })),
+                ...needsInvite.map(l => ({ lead: l, type: "new", label: "Neu — Einladung senden", color: T.gold, template: "intro" })),
+                ...invited.map(l => ({ lead: l, type: "nofollow", label: "Eingeladen — kein Follow-up geplant", color: T.seaLight, template: "followup" })),
+              ];
+              if (!actions.length) return null;
               return (
                 <div style={{
-                  background: overdue.length ? `${T.red}08` : `${T.gold}08`,
-                  border: `1px solid ${overdue.length ? T.red : T.gold}20`,
+                  background: T.navyLight, border: `1px solid ${T.navyMid}`,
                   borderRadius: 12, padding: "16px 20px", marginBottom: 24,
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: overdue.length ? 8 : 0, color: overdue.length ? T.red : T.gold }}>
-                    {overdue.length ? `⚠ ${overdue.length} überfällige Wiedervorlage(n)` : ""}
-                    {overdue.length && upcoming.length ? " · " : ""}
-                    {upcoming.length ? `📅 ${upcoming.length} anstehend` : ""}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>Empfohlene Aktionen <span style={{ color: T.gold }}>({actions.length})</span></span>
+                    {actions.length > 1 && (
+                      <button onClick={() => setBulkEmailLeadIds(overdue.map(l => l.id).filter(id => id))} style={{
+                        background: "transparent", border: `1px solid ${T.red}30`, color: T.red,
+                        padding: "4px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                      }}>Alle überfälligen kontaktieren ({overdue.length})</button>
+                    )}
                   </div>
-                  {overdue.map(l => (
-                    <div key={l.id} onClick={() => { setTab("contacts"); setSelectedLead(l); }} style={{
+                  {actions.slice(0, 8).map((a, i) => (
+                    <div key={`${a.lead.id}-${a.type}`} style={{
                       display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "8px 12px", background: T.navyMid, borderRadius: 8, marginBottom: 4, cursor: "pointer",
+                      padding: "8px 12px", background: T.navyMid, borderRadius: 8, marginBottom: 4,
                     }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{l.name} <span style={{ color: T.gray, fontWeight: 400 }}>— {l.company}</span></span>
-                      <span style={{ fontSize: 12, color: T.red }}>{fmtFollowUp(l.follow_up_date)}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 }} onClick={() => { setTab("contacts"); setSelectedLead(a.lead); }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{a.lead.name} <span style={{ color: T.gray, fontWeight: 400 }}>— {a.lead.company || "Unbekannt"}</span></span>
+                        <span style={{ fontSize: 11, color: a.color }}>{a.label}</span>
+                      </div>
+                      <button onClick={() => setShowEmailModal(a.lead.id)} style={{
+                        background: `${a.color}15`, border: `1px solid ${a.color}30`, color: a.color,
+                        padding: "4px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+                      }}>E-Mail senden</button>
                     </div>
                   ))}
+                  {actions.length > 8 && <div style={{ fontSize: 12, color: T.gray, marginTop: 8, textAlign: "center" }}>+ {actions.length - 8} weitere</div>}
                 </div>
               );
             })()}
 
             {tab === "contacts" && !selectedLead && !showAddForm && (
-              <ContactsList leads={leads} onSelect={setSelectedLead} onAdd={() => setShowAddForm(true)} onEmail={setShowEmailModal} refresh={refresh} />
+              <ContactsList leads={leads} onSelect={setSelectedLead} onAdd={() => setShowAddForm(true)} onEmail={setShowEmailModal} onBulkEmail={setBulkEmailLeadIds} refresh={refresh} />
             )}
             {tab === "contacts" && showAddForm && (
               <AddContactForm onBack={() => setShowAddForm(false)} refresh={refresh} />
@@ -431,6 +449,9 @@ function AdminDashboard({ onBack }) {
             {showEmailModal && (
               <EmailModal lead={leads.find(l => l.id === showEmailModal)} onClose={() => setShowEmailModal(null)} refresh={refresh} />
             )}
+            {bulkEmailLeadIds && (
+              <BulkEmailModal leads={leads} leadIds={bulkEmailLeadIds} onClose={() => setBulkEmailLeadIds(null)} refresh={refresh} />
+            )}
           </>
         )}
       </div>
@@ -441,7 +462,7 @@ function AdminDashboard({ onBack }) {
 // ═══════════════════════════════════════════════════════════════
 // CONTACTS LIST
 // ═══════════════════════════════════════════════════════════════
-function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
+function ContactsList({ leads, onSelect, onAdd, onEmail, onBulkEmail, refresh }) {
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState("");
   const [filterTag, setFilterTag] = useState("");
@@ -538,6 +559,15 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
             <option value="">Pipeline-Stufe ändern...</option>
             {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
+          <button onClick={() => {
+            const emailLeads = [...selectedIds].filter(id => {
+              const l = leads.find(x => x.id === id);
+              return l && l.email;
+            });
+            if (emailLeads.length) onBulkEmail(emailLeads);
+          }} style={{ background: T.navyMid, border: `1px solid ${T.gold}40`, borderRadius: 8, padding: "5px 10px", color: T.gold, fontSize: 12, cursor: "pointer" }}>
+            E-Mail an Auswahl senden
+          </button>
           <button onClick={() => setSelectedIds(new Set())} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 12, cursor: "pointer" }}>Auswahl aufheben</button>
         </div>
       )}
@@ -1098,6 +1128,145 @@ function ActivityLog({ leads, onSelect }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BULK EMAIL MODAL
+// ═══════════════════════════════════════════════════════════════
+function BulkEmailModal({ leads, leadIds, onClose, refresh }) {
+  const [templates] = useState(getAllTemplates);
+  const [selectedTemplate, setSelectedTemplate] = useState(templates[0]?.id);
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState({ sent: 0, failed: 0, total: leadIds.length });
+  const [done, setDone] = useState(false);
+
+  const selectedLeads = leadIds.map(id => leads.find(l => l.id === id)).filter(Boolean);
+  const template = templates.find(t => t.id === selectedTemplate) || templates[0];
+
+  const handleBulkSend = async () => {
+    setSending(true);
+    let sent = 0, failed = 0;
+    for (const lead of selectedLeads) {
+      if (!lead.email) { failed++; continue; }
+      const inviteLink = lead.invite_token
+        ? `${getAppUrl()}/?invite=${lead.invite_token}`
+        : "(Kein Einladungslink vorhanden)";
+      const subject = renderTemplate(template?.subject || "", lead, inviteLink);
+      const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
+      try {
+        const res = await fetch("/api/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: lead.email, subject, body }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          sent++;
+          // Track in DB
+          const updates = { last_activity: new Date().toISOString() };
+          if (template?.pipelineStage) {
+            const currentIdx = PIPELINE_STAGES.findIndex(s => s.id === lead.pipeline_stage);
+            const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === template.pipelineStage);
+            if (targetIdx > currentIdx || currentIdx === -1) updates.pipeline_stage = template.pipelineStage;
+          }
+          const followUp = new Date();
+          followUp.setDate(followUp.getDate() + 3);
+          followUp.setHours(9, 0, 0, 0);
+          updates.follow_up_date = followUp.toISOString();
+          await supabase.from('gt_leads').update(updates).eq('id', lead.id);
+          await supabase.from('gt_lead_notes').insert({
+            lead_id: lead.id,
+            text: `Massen-E-Mail "${template?.name}" an ${lead.email} — Wiedervorlage in 3 Tagen`,
+            note_type: 'email',
+          });
+        } else { failed++; }
+      } catch { failed++; }
+      setProgress({ sent: sent, failed, total: leadIds.length });
+    }
+    setDone(true);
+    setSending(false);
+    if (refresh) refresh();
+  };
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }} onClick={onClose}>
+      <div style={{
+        background: T.navyLight, borderRadius: 20, padding: 32, border: `1px solid ${T.navyMid}`,
+        maxWidth: 600, width: "100%", maxHeight: "90vh", overflow: "auto",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <h3 style={{ fontFamily: font, fontSize: 22, fontWeight: 700 }}>Massen-E-Mail an <span style={{ color: T.gold }}>{leadIds.length} Kontakte</span></h3>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 24, cursor: "pointer" }}>×</button>
+        </div>
+
+        {/* Recipients */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, display: "block" }}>Empfänger</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {selectedLeads.map(l => (
+              <span key={l.id} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 20, background: `${T.sea}15`, color: T.seaLight, border: `1px solid ${T.sea}30` }}>
+                {l.name} {!l.invite_token && <span style={{ color: T.red, fontSize: 10 }}>(kein Link)</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Template */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, display: "block" }}>Vorlage</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {templates.map(t => (
+              <button key={t.id} onClick={() => setSelectedTemplate(t.id)} style={{
+                padding: "8px 16px", borderRadius: 10, cursor: "pointer",
+                background: selectedTemplate === t.id ? `${T.gold}15` : T.navyMid,
+                border: selectedTemplate === t.id ? `1px solid ${T.gold}50` : `1px solid transparent`,
+                color: selectedTemplate === t.id ? T.gold : T.grayLight, fontSize: 13,
+              }}>{t.name}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Progress */}
+        {(sending || done) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ background: T.navyMid, borderRadius: 8, height: 8, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{
+                height: "100%", borderRadius: 8, transition: "width 0.3s",
+                width: `${((progress.sent + progress.failed) / progress.total) * 100}%`,
+                background: progress.failed > 0 ? `linear-gradient(90deg, ${T.green}, ${T.red})` : T.green,
+              }} />
+            </div>
+            <div style={{ fontSize: 13, color: T.grayLight }}>
+              {progress.sent} gesendet{progress.failed > 0 && <span style={{ color: T.red }}>, {progress.failed} fehlgeschlagen</span>} von {progress.total}
+            </div>
+          </div>
+        )}
+
+        {done && (
+          <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: T.green, fontWeight: 600 }}>
+            Versand abgeschlossen — {progress.sent} E-Mails erfolgreich gesendet. Wiedervorlagen automatisch gesetzt.
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: T.navyMid, color: T.grayLight, border: `1px solid ${T.navyMid}`, padding: "10px 20px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>{done ? "Schließen" : "Abbrechen"}</button>
+          {!done && (
+            <button onClick={handleBulkSend} disabled={sending} style={{
+              background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+              color: T.navy, border: "none", padding: "10px 20px", borderRadius: 10,
+              fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer",
+              opacity: sending ? 0.6 : 1,
+            }}>{sending ? "Wird gesendet..." : `An ${leadIds.length} Kontakte senden`}</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EMAIL MODAL
 // ═══════════════════════════════════════════════════════════════
 function EmailModal({ lead, onClose, refresh }) {
@@ -1126,7 +1295,7 @@ function EmailModal({ lead, onClose, refresh }) {
   const subject = renderTemplate(template?.subject || "", lead, inviteLink);
   const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
 
-  // Track email action: update pipeline + create note
+  // Track email action: update pipeline + create note + auto follow-up
   const trackEmailSent = async (method) => {
     const updates = { last_activity: new Date().toISOString() };
     // Auto-advance pipeline based on template type
@@ -1139,11 +1308,18 @@ function EmailModal({ lead, onClose, refresh }) {
         lead.pipeline_stage = template.pipelineStage;
       }
     }
+    // Auto-set follow-up: 3 days for intro/followup, 7 days for demo
+    const followUpDays = template?.id === "demo" ? 7 : 3;
+    const followUp = new Date();
+    followUp.setDate(followUp.getDate() + followUpDays);
+    followUp.setHours(9, 0, 0, 0);
+    updates.follow_up_date = followUp.toISOString();
+
     await supabase.from('gt_leads').update(updates).eq('id', lead.id);
     // Auto-create note
     await supabase.from('gt_lead_notes').insert({
       lead_id: lead.id,
-      text: `E-Mail "${template?.name || 'Unbekannt'}" an ${lead.email} (${method})`,
+      text: `E-Mail "${template?.name || 'Unbekannt'}" an ${lead.email} (${method}) — Wiedervorlage in ${followUpDays} Tagen`,
       note_type: 'email',
     });
   };
