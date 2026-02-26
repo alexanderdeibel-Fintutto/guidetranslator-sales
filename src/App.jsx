@@ -1,30 +1,41 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Routes, Route, useParams, Link, Navigate } from "react-router-dom";
 import { supabase } from "./supabaseClient";
 import { T, font, fontSans, globalCSS } from "./lib/tokens";
 import { Icon } from "./components/Icon";
+import { useAuth } from "./lib/AuthContext";
 import { upsertLead, loadLeadByEmail, saveCalculation, loadCalculations, deleteCalculation, submitContactRequest, lsLoad, lsSave, lsClear } from "./lib/supabaseHelpers";
 import { getSegment } from "./config/segments";
 
-// Pages
-import Admin from "./Admin";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Pricing from "./pages/Pricing";
-import SegmentHub from "./pages/SegmentHub";
-import SegmentLanding from "./pages/SegmentLanding";
-import Register from "./pages/Register";
-import Calculator from "./pages/Calculator";
-import Saved from "./pages/Saved";
-import Contact from "./pages/Contact";
-import PostOffer from "./pages/PostOffer";
-import HowTo from "./pages/HowTo";
+// Pages — lazy-loaded for code-splitting
+const Admin = lazy(() => import("./Admin"));
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const SegmentHub = lazy(() => import("./pages/SegmentHub"));
+const SegmentLanding = lazy(() => import("./pages/SegmentLanding"));
+const Register = lazy(() => import("./pages/Register"));
+const Calculator = lazy(() => import("./pages/Calculator"));
+const Saved = lazy(() => import("./pages/Saved"));
+const Contact = lazy(() => import("./pages/Contact"));
+const PostOffer = lazy(() => import("./pages/PostOffer"));
+const HowTo = lazy(() => import("./pages/HowTo"));
+
+function PageLoader() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 80 }}>
+      <div style={{ color: T.gold, fontFamily: font, fontSize: 18, animation: "pulse 1.5s infinite" }}>Laden...</div>
+    </div>
+  );
+}
 
 // ─── NAV ─────────────────────────────────────────────────────
 function Nav({ lead, savedCalcs, onLogout }) {
   const { segment } = useParams();
+  const auth = useAuth();
   const seg = segment ? getSegment(segment) : null;
   const accentColor = seg?.color || T.gold;
+  const navLink = { padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans };
 
   return (
     <nav style={{
@@ -53,15 +64,21 @@ function Nav({ lead, savedCalcs, onLogout }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {segment && lead && (
           <>
-            <Link to={`/${segment}/calculator`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Kalkulator</Link>
+            <Link to={`/${segment}/calculator`} style={navLink}>Kalkulator</Link>
             {savedCalcs.length > 0 && (
-              <Link to={`/${segment}/saved`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Kalkulationen ({savedCalcs.length})</Link>
+              <Link to={`/${segment}/saved`} style={navLink}>Kalkulationen ({savedCalcs.length})</Link>
             )}
-            <Link to={`/${segment}/contact`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Angebot</Link>
+            <Link to={`/${segment}/contact`} style={navLink}>Angebot</Link>
           </>
         )}
-        {segment && <Link to={`/${segment}/pricing`} style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Preise</Link>}
-        <Link to="/howto" style={{ padding: "6px 14px", borderRadius: 8, fontSize: 13, color: T.grayLight, textDecoration: "none", fontFamily: fontSans }}>Anleitung</Link>
+        {segment && <Link to={`/${segment}/pricing`} style={navLink}>Preise</Link>}
+        <Link to="/howto" style={navLink}>Anleitung</Link>
+        {auth?.user && (
+          <Link to="/dashboard" style={{ ...navLink, color: T.gold, border: `1px solid ${T.gold}30`, background: `${T.gold}08` }}>Dashboard</Link>
+        )}
+        {auth?.isAdmin?.() && (
+          <Link to="/admin" style={{ ...navLink, color: T.red, fontSize: 11 }}>Admin</Link>
+        )}
         {lead && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${T.navyMid}` }}>
             <span style={{ fontSize: 12, color: T.grayLight, fontFamily: fontSans }}>{lead.company}</span>
@@ -229,6 +246,7 @@ export default function App() {
   return (
     <div style={{ background: T.navy, minHeight: "100vh", color: T.whiteTrue, fontFamily: fontSans }}>
       <style>{globalCSS}</style>
+      <Suspense fallback={<PageLoader />}>
       <Routes>
         {/* Auth */}
         <Route path="/login" element={<Login />} />
@@ -256,6 +274,7 @@ export default function App() {
         {/* Hub */}
         <Route path="/" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><SegmentHub /></Layout>} />
       </Routes>
+      </Suspense>
     </div>
   );
 }

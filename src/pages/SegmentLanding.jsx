@@ -56,6 +56,14 @@ export default function SegmentLanding() {
             <Icon name="calc" size={20} color={T.navy} />
             Ersparnis berechnen
           </button>
+          <Link to={`/${segment}/pricing`} style={{
+            background: "transparent", color: seg.color,
+            border: `1px solid ${seg.color}40`, padding: "16px 36px", borderRadius: 12,
+            fontSize: 16, fontWeight: 600, textDecoration: "none",
+            fontFamily: fontSans, display: "flex", alignItems: "center", gap: 10,
+          }}>
+            Preise ansehen
+          </Link>
         </div>
 
         <div className="fu4" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 24, marginTop: 64, maxWidth: 700, width: "100%", position: "relative", zIndex: 1 }}>
@@ -108,9 +116,16 @@ export default function SegmentLanding() {
       <section style={{ padding: "80px 24px", textAlign: "center", background: `linear-gradient(135deg, ${T.navyMid}, ${T.navyLight})`, borderTop: `1px solid ${seg.color}15` }}>
         <h2 style={{ fontFamily: font, fontSize: "clamp(24px, 3.5vw, 40px)", maxWidth: 600, margin: "0 auto 16px" }}>Berechnen Sie Ihre <span style={{ color: seg.color }}>Ersparnis</span></h2>
         <p style={{ color: T.grayLight, marginBottom: 32 }}>Individuell — in 2 Minuten</p>
-        <button onClick={onStart} style={{ background: `linear-gradient(135deg, ${seg.color}, ${T.goldDark})`, color: T.navy, border: "none", padding: "18px 48px", borderRadius: 12, fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: `0 8px 32px ${seg.color}30` }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 10 }}><Icon name="arrow" size={20} color={T.navy} /> Kostenlos berechnen</span>
-        </button>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
+          <button onClick={onStart} style={{ background: `linear-gradient(135deg, ${seg.color}, ${T.goldDark})`, color: T.navy, border: "none", padding: "18px 48px", borderRadius: 12, fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: `0 8px 32px ${seg.color}30` }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}><Icon name="arrow" size={20} color={T.navy} /> Kostenlos berechnen</span>
+          </button>
+          <Link to={`/${segment}/pricing`} style={{
+            background: "transparent", color: seg.color,
+            border: `1px solid ${seg.color}40`, padding: "18px 36px", borderRadius: 12,
+            fontSize: 16, fontWeight: 600, textDecoration: "none",
+          }}>Preise & Pläne</Link>
+        </div>
       </section>
 
       <footer style={{ padding: "32px 24px", textAlign: "center", borderTop: `1px solid ${T.navyMid}` }}>
