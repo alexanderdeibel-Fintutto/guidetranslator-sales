@@ -20,6 +20,7 @@ const Saved = lazy(() => import("./pages/Saved"));
 const Contact = lazy(() => import("./pages/Contact"));
 const PostOffer = lazy(() => import("./pages/PostOffer"));
 const HowTo = lazy(() => import("./pages/HowTo"));
+const Setup = lazy(() => import("./pages/Setup"));
 
 function PageLoader() {
   return (
@@ -259,6 +260,9 @@ export default function App() {
 
         {/* HowTo */}
         <Route path="/howto" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><HowTo /></Layout>} />
+
+        {/* Setup (one-time Stripe + Admin setup) */}
+        <Route path="/setup" element={<Setup />} />
 
         {/* Segment Routes */}
         <Route path="/:segment/pricing" element={<Layout lead={lead} savedCalcs={savedCalcs} onLogout={handleLogout}><Pricing /></Layout>} />
