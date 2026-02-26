@@ -123,12 +123,23 @@ async function provisionCustomerAccount(supabase, email, lead, tierName) {
   const existing = existingUsers?.users?.find(u => u.email === email);
 
   if (existing) {
-    // User already has an auth account — just ensure role is set
-    await supabase.from("gt_roles").upsert({
-      user_id: existing.id,
-      role: "customer",
-      segment: lead?.segment || null,
-    }, { onConflict: "user_id" });
+    // User already has an auth account — ensure role + organization exist
+    const { data: existingRole } = await supabase.from("gt_roles")
+      .select("organization_id").eq("user_id", existing.id).single();
+
+    if (!existingRole?.organization_id) {
+      const orgId = await ensureOrganization(supabase, existing.id, lead);
+      await supabase.from("gt_roles").upsert({
+        user_id: existing.id,
+        role: "customer",
+        segment: lead?.segment || null,
+        organization_id: orgId,
+      }, { onConflict: "user_id" });
+    }
+    // Link lead to auth user
+    if (lead?.id) {
+      await supabase.from("gt_leads").update({ auth_user_id: existing.id }).eq("id", lead.id);
+    }
     return;
   }
 
@@ -149,12 +160,23 @@ async function provisionCustomerAccount(supabase, email, lead, tierName) {
     return;
   }
 
-  // Assign "customer" role
+  const userId = authUser.user.id;
+
+  // Create organization for the customer
+  const orgId = await ensureOrganization(supabase, userId, lead);
+
+  // Assign "customer" role with organization
   await supabase.from("gt_roles").upsert({
-    user_id: authUser.user.id,
+    user_id: userId,
     role: "customer",
     segment: lead?.segment || null,
+    organization_id: orgId,
   }, { onConflict: "user_id" });
+
+  // Link lead to auth user
+  if (lead?.id) {
+    await supabase.from("gt_leads").update({ auth_user_id: userId }).eq("id", lead.id);
+  }
 
   // Send welcome email with credentials
   await sendWelcomeEmail(email, lead?.name || email, tempPassword, tierName);
@@ -163,10 +185,35 @@ async function provisionCustomerAccount(supabase, email, lead, tierName) {
   if (lead?.id) {
     await supabase.from("gt_lead_notes").insert({
       lead_id: lead.id,
-      text: `Kunden-Account automatisch erstellt (Rolle: customer). Willkommens-Email gesendet.`,
+      text: `Kunden-Account automatisch erstellt (Rolle: customer, Organisation: ${lead?.company || "—"}). Willkommens-Email gesendet.`,
       note_type: "system",
     });
   }
+}
+
+async function ensureOrganization(supabase, userId, lead) {
+  // Check if org already exists for this user
+  const { data: existingOrg } = await supabase
+    .from("gt_organizations")
+    .select("id")
+    .eq("owner_user_id", userId)
+    .single();
+
+  if (existingOrg) return existingOrg.id;
+
+  // Create new organization
+  const { data: org } = await supabase
+    .from("gt_organizations")
+    .insert({
+      name: lead?.company || lead?.name || "Organisation",
+      segment: lead?.segment || "kreuzfahrt",
+      owner_user_id: userId,
+      stripe_customer_id: lead?.stripe_customer_id || null,
+    })
+    .select("id")
+    .single();
+
+  return org?.id || null;
 }
 
 function verifyStripeSignature(rawBody, sigHeader, secret) {
