@@ -1,20 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import { T, font, fontSans } from "./lib/tokens";
+import { useAuth } from "./lib/AuthContext";
 
-// ─── DESIGN TOKENS (shared with App) ────────────────────────────
-const T = {
-  navy: "#0a1628", navyLight: "#132038", navyMid: "#1a2d4a",
-  gold: "#c8a84e", goldLight: "#e8d48e", goldDark: "#a08030",
-  sea: "#1a6b8a", seaLight: "#2a9bc0",
-  white: "#f0f2f5", whiteTrue: "#ffffff",
-  red: "#e74c3c", green: "#27ae60",
-  gray: "#6b7a8d", grayLight: "#94a3b8",
-};
-const font = `'Playfair Display', Georgia, serif`;
-const fontSans = `'DM Sans', 'Segoe UI', sans-serif`;
-
-// ─── ADMIN PASSWORD ─────────────────────────────────────────────
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "guidetranslator2026";
+// ─── LEGACY ADMIN PASSWORD (fallback if Supabase Auth not set up yet) ────
+// IMPORTANT: Set VITE_ADMIN_PASSWORD in your .env — no hardcoded fallback
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || null;
 
 // ─── HELPERS ────────────────────────────────────────────────────
 const fmtEur = (n) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
@@ -134,15 +125,19 @@ function renderTemplate(bodyTemplate, contact, link) {
 
 // ─── PIPELINE STAGES ─────────────────────────────────────────
 const PIPELINE_STAGES = [
-  { id: "neu",          label: "Neu",            color: T.gray },
-  { id: "eingeladen",   label: "Eingeladen",     color: T.gold },
-  { id: "registriert",  label: "Registriert",    color: T.seaLight },
-  { id: "kalkulation",  label: "Kalkulation",    color: T.goldLight },
-  { id: "demo",         label: "Demo geplant",   color: "#9b59b6" },
-  { id: "angebot",      label: "Angebot",        color: T.sea },
-  { id: "verhandlung",  label: "Verhandlung",    color: "#e67e22" },
-  { id: "gewonnen",     label: "Gewonnen",       color: T.green },
-  { id: "verloren",     label: "Verloren",       color: T.red },
+  { id: "neu",              label: "Neu",              color: T.gray },
+  { id: "eingeladen",       label: "Eingeladen",       color: T.gold },
+  { id: "registriert",      label: "Registriert",      color: T.seaLight },
+  { id: "kalkulation",      label: "Kalkulation",      color: T.goldLight },
+  { id: "angebot_erstellt", label: "Angebot erstellt", color: T.sea },
+  { id: "getestet",         label: "Getestet",         color: "#27ae60" },
+  { id: "testet_spaeter",   label: "Testet später",    color: "#e67e22" },
+  { id: "erinnert_zum_test",label: "Test-Erinnerung",  color: "#9b59b6" },
+  { id: "demo",             label: "Demo geplant",     color: "#9b59b6" },
+  { id: "angebot",          label: "Angebot",          color: T.sea },
+  { id: "verhandlung",      label: "Verhandlung",      color: "#e67e22" },
+  { id: "gewonnen",         label: "Gewonnen",         color: T.green },
+  { id: "verloren",         label: "Verloren",         color: T.red },
 ];
 const PIPELINE_MAP = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, s]));
 
@@ -223,24 +218,40 @@ class AdminErrorBoundary extends React.Component {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ADMIN COMPONENT
+// ADMIN COMPONENT (dual auth: Supabase Auth preferred, legacy password fallback)
 // ═══════════════════════════════════════════════════════════════
 export default function Admin({ onBack }) {
-  const [authed, setAuthed] = useState(false);
+  const auth = useAuth();
+  const [legacyAuthed, setLegacyAuthed] = useState(false);
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState("");
 
+  // If Supabase Auth is active and user is admin, skip password
+  const isSupabaseAdmin = auth?.user && auth?.isAdmin?.();
+
   const handleLogin = (e) => {
     e.preventDefault();
+    if (!ADMIN_PASSWORD) {
+      setPwError("Admin-Passwort nicht konfiguriert. Bitte VITE_ADMIN_PASSWORD in .env setzen.");
+      return;
+    }
     if (pw === ADMIN_PASSWORD) {
-      setAuthed(true);
+      setLegacyAuthed(true);
       setPwError("");
     } else {
       setPwError("Falsches Passwort.");
     }
   };
 
-  if (!authed) {
+  if (auth?.loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: T.navy, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: T.gold, fontFamily: font, fontSize: 20 }}>Lade...</div>
+      </div>
+    );
+  }
+
+  if (!isSupabaseAdmin && !legacyAuthed) {
     return (
       <div style={{ minHeight: "100vh", background: T.navy, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: fontSans }}>
         <div style={{ maxWidth: 400, width: "100%", padding: 24 }}>
@@ -270,6 +281,9 @@ export default function Admin({ onBack }) {
               color: T.navy, border: "none", padding: "14px 24px", borderRadius: 12,
               fontSize: 16, fontWeight: 700, cursor: "pointer",
             }}>Anmelden</button>
+            <p style={{ fontSize: 11, color: T.gray, textAlign: "center", marginTop: 12 }}>
+              Supabase Auth: <a href="/login" style={{ color: T.seaLight }}>Hier anmelden</a>
+            </p>
           </form>
           <button onClick={onBack} style={{ background: "transparent", border: "none", color: T.grayLight, fontSize: 14, cursor: "pointer", display: "block", margin: "20px auto 0" }}>← Zurück zur App</button>
         </div>
@@ -277,19 +291,20 @@ export default function Admin({ onBack }) {
     );
   }
 
-  return <AdminErrorBoundary><AdminDashboard onBack={onBack} /></AdminErrorBoundary>;
+  return <AdminErrorBoundary><AdminDashboard onBack={onBack} authUser={auth?.user} authRole={auth?.role} /></AdminErrorBoundary>;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ADMIN DASHBOARD
 // ═══════════════════════════════════════════════════════════════
-function AdminDashboard({ onBack }) {
+function AdminDashboard({ onBack, authUser, authRole }) {
   const [tab, setTab] = useState("contacts");
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedLead, setSelectedLead] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(null); // leadId or null
+  const [bulkEmailLeadIds, setBulkEmailLeadIds] = useState(null); // array of leadIds or null
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Load all leads with calculation counts
@@ -325,6 +340,7 @@ function AdminDashboard({ onBack }) {
   const tabs = [
     { id: "contacts", label: "Kontakte", count: leads.length },
     { id: "activity", label: "Aktivität" },
+    { id: "accounts", label: "Accounts" },
   ];
 
   return (
@@ -387,37 +403,54 @@ function AdminDashboard({ onBack }) {
               ))}
             </div>
 
-            {/* Overdue Follow-ups Banner */}
+            {/* Empfohlene Aktionen */}
             {(() => {
               const overdue = leads.filter(l => l.follow_up_date && isOverdue(l.follow_up_date));
-              const upcoming = leads.filter(l => l.follow_up_date && !isOverdue(l.follow_up_date));
-              if (!overdue.length && !upcoming.length) return null;
+              const needsInvite = leads.filter(l => (!l.pipeline_stage || l.pipeline_stage === "neu") && !l.invite_token);
+              const invited = leads.filter(l => l.pipeline_stage === "eingeladen" && !l.follow_up_date);
+              const actions = [
+                ...overdue.map(l => ({ lead: l, type: "overdue", label: `Wiedervorlage: ${fmtFollowUp(l.follow_up_date)}`, color: T.red, template: "followup" })),
+                ...needsInvite.map(l => ({ lead: l, type: "new", label: "Neu — Einladung senden", color: T.gold, template: "intro" })),
+                ...invited.map(l => ({ lead: l, type: "nofollow", label: "Eingeladen — kein Follow-up geplant", color: T.seaLight, template: "followup" })),
+              ];
+              if (!actions.length) return null;
               return (
                 <div style={{
-                  background: overdue.length ? `${T.red}08` : `${T.gold}08`,
-                  border: `1px solid ${overdue.length ? T.red : T.gold}20`,
+                  background: T.navyLight, border: `1px solid ${T.navyMid}`,
                   borderRadius: 12, padding: "16px 20px", marginBottom: 24,
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: overdue.length ? 8 : 0, color: overdue.length ? T.red : T.gold }}>
-                    {overdue.length ? `⚠ ${overdue.length} überfällige Wiedervorlage(n)` : ""}
-                    {overdue.length && upcoming.length ? " · " : ""}
-                    {upcoming.length ? `📅 ${upcoming.length} anstehend` : ""}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, fontFamily: font }}>Empfohlene Aktionen <span style={{ color: T.gold }}>({actions.length})</span></span>
+                    {actions.length > 1 && (
+                      <button onClick={() => setBulkEmailLeadIds(overdue.map(l => l.id).filter(id => id))} style={{
+                        background: "transparent", border: `1px solid ${T.red}30`, color: T.red,
+                        padding: "4px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                      }}>Alle überfälligen kontaktieren ({overdue.length})</button>
+                    )}
                   </div>
-                  {overdue.map(l => (
-                    <div key={l.id} onClick={() => { setTab("contacts"); setSelectedLead(l); }} style={{
+                  {actions.slice(0, 8).map((a, i) => (
+                    <div key={`${a.lead.id}-${a.type}`} style={{
                       display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "8px 12px", background: T.navyMid, borderRadius: 8, marginBottom: 4, cursor: "pointer",
+                      padding: "8px 12px", background: T.navyMid, borderRadius: 8, marginBottom: 4,
                     }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{l.name} <span style={{ color: T.gray, fontWeight: 400 }}>— {l.company}</span></span>
-                      <span style={{ fontSize: 12, color: T.red }}>{fmtFollowUp(l.follow_up_date)}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 }} onClick={() => { setTab("contacts"); setSelectedLead(a.lead); }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{a.lead.name} <span style={{ color: T.gray, fontWeight: 400 }}>— {a.lead.company || "Unbekannt"}</span></span>
+                        <span style={{ fontSize: 11, color: a.color }}>{a.label}</span>
+                      </div>
+                      <button onClick={() => setShowEmailModal(a.lead.id)} style={{
+                        background: `${a.color}15`, border: `1px solid ${a.color}30`, color: a.color,
+                        padding: "4px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+                      }}>E-Mail senden</button>
                     </div>
                   ))}
+                  {actions.length > 8 && <div style={{ fontSize: 12, color: T.gray, marginTop: 8, textAlign: "center" }}>+ {actions.length - 8} weitere</div>}
                 </div>
               );
             })()}
 
             {tab === "contacts" && !selectedLead && !showAddForm && (
-              <ContactsList leads={leads} onSelect={setSelectedLead} onAdd={() => setShowAddForm(true)} onEmail={setShowEmailModal} refresh={refresh} />
+              <ContactsList leads={leads} onSelect={setSelectedLead} onAdd={() => setShowAddForm(true)} onEmail={setShowEmailModal} onBulkEmail={setBulkEmailLeadIds} refresh={refresh} />
             )}
             {tab === "contacts" && showAddForm && (
               <AddContactForm onBack={() => setShowAddForm(false)} refresh={refresh} />
@@ -428,8 +461,14 @@ function AdminDashboard({ onBack }) {
             {tab === "activity" && (
               <ActivityLog leads={leads} onSelect={setSelectedLead} />
             )}
+            {tab === "accounts" && (
+              <AccountsManager authUser={authUser} authRole={authRole} />
+            )}
             {showEmailModal && (
               <EmailModal lead={leads.find(l => l.id === showEmailModal)} onClose={() => setShowEmailModal(null)} refresh={refresh} />
+            )}
+            {bulkEmailLeadIds && (
+              <BulkEmailModal leads={leads} leadIds={bulkEmailLeadIds} onClose={() => setBulkEmailLeadIds(null)} refresh={refresh} />
             )}
           </>
         )}
@@ -441,7 +480,7 @@ function AdminDashboard({ onBack }) {
 // ═══════════════════════════════════════════════════════════════
 // CONTACTS LIST
 // ═══════════════════════════════════════════════════════════════
-function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
+function ContactsList({ leads, onSelect, onAdd, onEmail, onBulkEmail, refresh }) {
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState("");
   const [filterTag, setFilterTag] = useState("");
@@ -538,6 +577,15 @@ function ContactsList({ leads, onSelect, onAdd, onEmail, refresh }) {
             <option value="">Pipeline-Stufe ändern...</option>
             {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
+          <button onClick={() => {
+            const emailLeads = [...selectedIds].filter(id => {
+              const l = leads.find(x => x.id === id);
+              return l && l.email;
+            });
+            if (emailLeads.length) onBulkEmail(emailLeads);
+          }} style={{ background: T.navyMid, border: `1px solid ${T.gold}40`, borderRadius: 8, padding: "5px 10px", color: T.gold, fontSize: 12, cursor: "pointer" }}>
+            E-Mail an Auswahl senden
+          </button>
           <button onClick={() => setSelectedIds(new Set())} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 12, cursor: "pointer" }}>Auswahl aufheben</button>
         </div>
       )}
@@ -1098,6 +1146,145 @@ function ActivityLog({ leads, onSelect }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// BULK EMAIL MODAL
+// ═══════════════════════════════════════════════════════════════
+function BulkEmailModal({ leads, leadIds, onClose, refresh }) {
+  const [templates] = useState(getAllTemplates);
+  const [selectedTemplate, setSelectedTemplate] = useState(templates[0]?.id);
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState({ sent: 0, failed: 0, total: leadIds.length });
+  const [done, setDone] = useState(false);
+
+  const selectedLeads = leadIds.map(id => leads.find(l => l.id === id)).filter(Boolean);
+  const template = templates.find(t => t.id === selectedTemplate) || templates[0];
+
+  const handleBulkSend = async () => {
+    setSending(true);
+    let sent = 0, failed = 0;
+    for (const lead of selectedLeads) {
+      if (!lead.email) { failed++; continue; }
+      const inviteLink = lead.invite_token
+        ? `${getAppUrl()}/?invite=${lead.invite_token}`
+        : "(Kein Einladungslink vorhanden)";
+      const subject = renderTemplate(template?.subject || "", lead, inviteLink);
+      const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
+      try {
+        const res = await fetch("/api/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: lead.email, subject, body }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          sent++;
+          // Track in DB
+          const updates = { last_activity: new Date().toISOString() };
+          if (template?.pipelineStage) {
+            const currentIdx = PIPELINE_STAGES.findIndex(s => s.id === lead.pipeline_stage);
+            const targetIdx = PIPELINE_STAGES.findIndex(s => s.id === template.pipelineStage);
+            if (targetIdx > currentIdx || currentIdx === -1) updates.pipeline_stage = template.pipelineStage;
+          }
+          const followUp = new Date();
+          followUp.setDate(followUp.getDate() + 3);
+          followUp.setHours(9, 0, 0, 0);
+          updates.follow_up_date = followUp.toISOString();
+          await supabase.from('gt_leads').update(updates).eq('id', lead.id);
+          await supabase.from('gt_lead_notes').insert({
+            lead_id: lead.id,
+            text: `Massen-E-Mail "${template?.name}" an ${lead.email} — Wiedervorlage in 3 Tagen`,
+            note_type: 'email',
+          });
+        } else { failed++; }
+      } catch { failed++; }
+      setProgress({ sent: sent, failed, total: leadIds.length });
+    }
+    setDone(true);
+    setSending(false);
+    if (refresh) refresh();
+  };
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }} onClick={onClose}>
+      <div style={{
+        background: T.navyLight, borderRadius: 20, padding: 32, border: `1px solid ${T.navyMid}`,
+        maxWidth: 600, width: "100%", maxHeight: "90vh", overflow: "auto",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <h3 style={{ fontFamily: font, fontSize: 22, fontWeight: 700 }}>Massen-E-Mail an <span style={{ color: T.gold }}>{leadIds.length} Kontakte</span></h3>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.gray, fontSize: 24, cursor: "pointer" }}>×</button>
+        </div>
+
+        {/* Recipients */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, display: "block" }}>Empfänger</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {selectedLeads.map(l => (
+              <span key={l.id} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 20, background: `${T.sea}15`, color: T.seaLight, border: `1px solid ${T.sea}30` }}>
+                {l.name} {!l.invite_token && <span style={{ color: T.red, fontSize: 10 }}>(kein Link)</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Template */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, display: "block" }}>Vorlage</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {templates.map(t => (
+              <button key={t.id} onClick={() => setSelectedTemplate(t.id)} style={{
+                padding: "8px 16px", borderRadius: 10, cursor: "pointer",
+                background: selectedTemplate === t.id ? `${T.gold}15` : T.navyMid,
+                border: selectedTemplate === t.id ? `1px solid ${T.gold}50` : `1px solid transparent`,
+                color: selectedTemplate === t.id ? T.gold : T.grayLight, fontSize: 13,
+              }}>{t.name}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Progress */}
+        {(sending || done) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ background: T.navyMid, borderRadius: 8, height: 8, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{
+                height: "100%", borderRadius: 8, transition: "width 0.3s",
+                width: `${((progress.sent + progress.failed) / progress.total) * 100}%`,
+                background: progress.failed > 0 ? `linear-gradient(90deg, ${T.green}, ${T.red})` : T.green,
+              }} />
+            </div>
+            <div style={{ fontSize: 13, color: T.grayLight }}>
+              {progress.sent} gesendet{progress.failed > 0 && <span style={{ color: T.red }}>, {progress.failed} fehlgeschlagen</span>} von {progress.total}
+            </div>
+          </div>
+        )}
+
+        {done && (
+          <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: T.green, fontWeight: 600 }}>
+            Versand abgeschlossen — {progress.sent} E-Mails erfolgreich gesendet. Wiedervorlagen automatisch gesetzt.
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: T.navyMid, color: T.grayLight, border: `1px solid ${T.navyMid}`, padding: "10px 20px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>{done ? "Schließen" : "Abbrechen"}</button>
+          {!done && (
+            <button onClick={handleBulkSend} disabled={sending} style={{
+              background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+              color: T.navy, border: "none", padding: "10px 20px", borderRadius: 10,
+              fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer",
+              opacity: sending ? 0.6 : 1,
+            }}>{sending ? "Wird gesendet..." : `An ${leadIds.length} Kontakte senden`}</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EMAIL MODAL
 // ═══════════════════════════════════════════════════════════════
 function EmailModal({ lead, onClose, refresh }) {
@@ -1126,7 +1313,7 @@ function EmailModal({ lead, onClose, refresh }) {
   const subject = renderTemplate(template?.subject || "", lead, inviteLink);
   const body = renderTemplate(template?.bodyTemplate || "", lead, inviteLink);
 
-  // Track email action: update pipeline + create note
+  // Track email action: update pipeline + create note + auto follow-up
   const trackEmailSent = async (method) => {
     const updates = { last_activity: new Date().toISOString() };
     // Auto-advance pipeline based on template type
@@ -1139,11 +1326,18 @@ function EmailModal({ lead, onClose, refresh }) {
         lead.pipeline_stage = template.pipelineStage;
       }
     }
+    // Auto-set follow-up: 3 days for intro/followup, 7 days for demo
+    const followUpDays = template?.id === "demo" ? 7 : 3;
+    const followUp = new Date();
+    followUp.setDate(followUp.getDate() + followUpDays);
+    followUp.setHours(9, 0, 0, 0);
+    updates.follow_up_date = followUp.toISOString();
+
     await supabase.from('gt_leads').update(updates).eq('id', lead.id);
     // Auto-create note
     await supabase.from('gt_lead_notes').insert({
       lead_id: lead.id,
-      text: `E-Mail "${template?.name || 'Unbekannt'}" an ${lead.email} (${method})`,
+      text: `E-Mail "${template?.name || 'Unbekannt'}" an ${lead.email} (${method}) — Wiedervorlage in ${followUpDays} Tagen`,
       note_type: 'email',
     });
   };
@@ -1410,6 +1604,275 @@ function EmailModal({ lead, onClose, refresh }) {
             fontSize: 14, fontWeight: 700, cursor: sending || sendResult?.success ? "default" : "pointer",
             opacity: sending ? 0.6 : 1,
           }}>{sending ? "Wird gesendet..." : sendResult?.success ? "✓ Versendet" : "Direkt senden"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACCOUNTS MANAGER
+// ═══════════════════════════════════════════════════════════════
+function AccountsManager({ authUser, authRole }) {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "sales", segment: "" });
+  const [inviting, setInviting] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null);
+
+  const ROLE_LABELS = {
+    super_admin: { label: "Super-Admin", color: T.red },
+    admin: { label: "Admin", color: T.gold },
+    sales: { label: "Sales", color: T.seaLight },
+    customer: { label: "Kunde", color: T.green },
+    sub_account: { label: "Sub-Account", color: T.gray },
+  };
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  const loadAccounts = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase
+        .from("gt_roles")
+        .select("*")
+        .order("created_at", { ascending: false });
+      setAccounts(data || []);
+    } catch (e) {
+      console.log("Failed to load accounts:", e);
+    }
+    setLoading(false);
+  };
+
+  const handleInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteForm.name || !inviteForm.email) {
+      setInviteResult({ error: "Name und E-Mail sind Pflichtfelder." });
+      return;
+    }
+    setInviting(true);
+    setInviteResult(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setInviteResult({ error: "Bitte über Supabase Auth anmelden (nicht Legacy-Passwort) um Accounts anzulegen." });
+        setInviting(false);
+        return;
+      }
+
+      const res = await fetch("/api/invite-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(inviteForm),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setInviteResult({
+          success: true,
+          isNew: data.isNew,
+          emailSent: data.emailSent,
+          emailError: data.emailError,
+        });
+        loadAccounts();
+      } else {
+        setInviteResult({ error: data.error || "Einladung fehlgeschlagen" });
+      }
+    } catch (err) {
+      setInviteResult({ error: "Netzwerkfehler: " + err.message });
+    }
+    setInviting(false);
+  };
+
+  const handleDeleteRole = async (roleId, userId) => {
+    if (!window.confirm("Rolle wirklich löschen?")) return;
+    try {
+      await supabase.from("gt_roles").delete().eq("id", roleId);
+      loadAccounts();
+    } catch (e) {
+      console.log("Delete failed:", e);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <h2 style={{ fontFamily: font, fontSize: 24, fontWeight: 700 }}>Accounts & Rollen</h2>
+        <button onClick={() => { setShowInvite(!showInvite); setInviteResult(null); }} style={{
+          background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+          color: T.navy, border: "none", padding: "10px 20px", borderRadius: 10,
+          fontSize: 14, fontWeight: 700, cursor: "pointer",
+        }}>{showInvite ? "Abbrechen" : "+ Account einladen"}</button>
+      </div>
+
+      {/* Auth Info */}
+      {authUser && (
+        <div style={{
+          background: `${T.green}08`, border: `1px solid ${T.green}25`,
+          borderRadius: 12, padding: "12px 16px", marginBottom: 16,
+          fontSize: 13, color: T.grayLight, display: "flex", gap: 12, alignItems: "center",
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.green }} />
+          Angemeldet als: <strong style={{ color: T.whiteTrue }}>{authUser.email}</strong>
+          <span style={{
+            fontSize: 11, padding: "2px 8px", borderRadius: 20,
+            background: `${ROLE_LABELS[authRole]?.color || T.gray}15`,
+            color: ROLE_LABELS[authRole]?.color || T.gray,
+            border: `1px solid ${ROLE_LABELS[authRole]?.color || T.gray}30`,
+          }}>{ROLE_LABELS[authRole]?.label || authRole || "Keine Rolle"}</span>
+        </div>
+      )}
+
+      {/* Invite Form */}
+      {showInvite && (
+        <div style={{
+          background: T.navyLight, borderRadius: 16, padding: 24,
+          border: `1px solid ${T.navyMid}`, marginBottom: 24,
+        }}>
+          <h3 style={{ fontFamily: font, fontSize: 18, marginBottom: 16 }}>Neuen Account <span style={{ color: T.gold }}>einladen</span></h3>
+          <form onSubmit={handleInvite} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, color: T.grayLight, marginBottom: 6, display: "block" }}>Name *</label>
+                <input value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} placeholder="Max Mustermann" style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: T.grayLight, marginBottom: 6, display: "block" }}>E-Mail *</label>
+                <input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} placeholder="user@example.com" style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, color: T.grayLight, marginBottom: 6, display: "block" }}>Rolle</label>
+                <select value={inviteForm.role} onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }}>
+                  {authRole === "super_admin" && <option value="admin">Admin</option>}
+                  <option value="sales">Sales</option>
+                  <option value="customer">Kunde</option>
+                  <option value="sub_account">Sub-Account</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: T.grayLight, marginBottom: 6, display: "block" }}>Segment</label>
+                <select value={inviteForm.segment} onChange={e => setInviteForm(f => ({ ...f, segment: e.target.value }))} style={{ width: "100%", background: T.navyMid, border: `1px solid ${T.navyMid}`, borderRadius: 8, padding: "10px 14px", color: T.whiteTrue, fontSize: 14 }}>
+                  <option value="">Alle Segmente</option>
+                  <option value="stadtfuehrer">Stadtführer</option>
+                  <option value="agentur">Agentur</option>
+                  <option value="veranstalter">Veranstalter</option>
+                  <option value="kreuzfahrt">Kreuzfahrt</option>
+                  <option value="enterprise">Großveranstalter</option>
+                  <option value="fintutto">Fintutto Single</option>
+                </select>
+              </div>
+            </div>
+
+            {inviteResult?.error && (
+              <div style={{ background: `${T.red}10`, border: `1px solid ${T.red}30`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: T.red }}>{inviteResult.error}</div>
+            )}
+            {inviteResult?.success && (
+              <div style={{ background: `${T.green}10`, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: T.green }}>
+                {inviteResult.isNew ? "Account erstellt!" : "Rolle aktualisiert!"}
+                {inviteResult.emailSent ? " Einladungs-E-Mail versendet." : ""}
+                {inviteResult.emailError ? ` (E-Mail-Fehler: ${inviteResult.emailError})` : ""}
+              </div>
+            )}
+
+            <button type="submit" disabled={inviting} style={{
+              background: `linear-gradient(135deg, ${T.gold}, ${T.goldDark})`,
+              color: T.navy, border: "none", padding: "12px 24px", borderRadius: 10,
+              fontSize: 15, fontWeight: 700, cursor: inviting ? "default" : "pointer",
+              opacity: inviting ? 0.6 : 1, alignSelf: "flex-start",
+            }}>{inviting ? "Wird eingeladen..." : "Account einladen"}</button>
+          </form>
+        </div>
+      )}
+
+      {/* Accounts List */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40, color: T.grayLight }}>Lade Accounts...</div>
+      ) : (
+        <div style={{ background: T.navyLight, borderRadius: 16, border: `1px solid ${T.navyMid}`, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${T.navyMid}` }}>
+                {["User ID", "Rolle", "Segment", "Erstellt", "Aktionen"].map(h => (
+                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map(acc => {
+                const rl = ROLE_LABELS[acc.role] || { label: acc.role, color: T.gray };
+                return (
+                  <tr key={acc.id} style={{ borderBottom: `1px solid ${T.navyMid}08` }}>
+                    <td style={{ padding: "12px 16px", fontSize: 12, color: T.grayLight, fontFamily: "monospace" }}>
+                      {acc.user_id?.slice(0, 8)}...
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{
+                        fontSize: 11, padding: "3px 10px", borderRadius: 20,
+                        background: `${rl.color}15`, color: rl.color,
+                        border: `1px solid ${rl.color}30`,
+                      }}>{rl.label}</span>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: T.grayLight }}>
+                      {acc.segment || "Alle"}
+                    </td>
+                    <td style={{ padding: "12px 16px", fontSize: 12, color: T.gray }}>
+                      {acc.created_at ? new Date(acc.created_at).toLocaleDateString("de-DE") : "—"}
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      {acc.user_id !== authUser?.id && (
+                        <button onClick={() => handleDeleteRole(acc.id, acc.user_id)} style={{
+                          background: `${T.red}15`, border: `1px solid ${T.red}30`,
+                          color: T.red, padding: "4px 10px", borderRadius: 6,
+                          fontSize: 11, cursor: "pointer",
+                        }}>Entfernen</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!accounts.length && (
+                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: T.gray }}>
+                  Noch keine Accounts. Erstellen Sie den ersten über "Account einladen".
+                  <br /><br />
+                  <span style={{ fontSize: 12 }}>Tipp: Zuerst <code>POST /api/seed-admin</code> ausführen, um die Admin-Accounts anzulegen.</span>
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Role Hierarchy Info */}
+      <div style={{ marginTop: 24, background: T.navyLight, borderRadius: 12, padding: 20, border: `1px solid ${T.navyMid}` }}>
+        <h3 style={{ fontFamily: font, fontSize: 16, marginBottom: 12 }}>Rollen-Hierarchie</h3>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { role: "super_admin", desc: "Voller Zugriff, kann Admins erstellen" },
+            { role: "admin", desc: "Dashboard, Kontakte, kann Sales/Kunden erstellen" },
+            { role: "sales", desc: "Kontakte verwalten, E-Mails senden" },
+            { role: "customer", desc: "Eigenes Dashboard, Kalkulationen" },
+            { role: "sub_account", desc: "Eingeschränkter Zugang (Guides)" },
+          ].map(r => {
+            const rl = ROLE_LABELS[r.role];
+            return (
+              <div key={r.role} style={{
+                flex: "1 1 180px", background: T.navyMid, borderRadius: 10,
+                padding: "10px 14px", border: `1px solid ${rl.color}20`,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: rl.color }}>{rl.label}</span>
+                <div style={{ fontSize: 11, color: T.gray, marginTop: 4 }}>{r.desc}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
