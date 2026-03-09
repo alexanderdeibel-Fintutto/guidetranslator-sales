@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "./supabaseClient";
+import { trackEvent, trackPageview } from "./tracker";
 import Admin from "./Admin";
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────
@@ -249,6 +250,7 @@ export default function App() {
     // Clean up URL
     window.history.replaceState({}, '', window.location.pathname);
     lsSave({ lead: leadInfo, leadId: dbId, calcs: [] });
+    trackEvent('register', { company: leadInfo.company, fleet: leadInfo.ships });
     setPage("calculator");
   };
 
@@ -265,6 +267,7 @@ export default function App() {
     const updated = [...savedCalcs, savedCalc];
     setSavedCalcs(updated);
     lsSave({ lead, leadId, calcs: updated });
+    trackEvent('calculation_saved', { savings_pct: calc.results?.savingsPercent });
   };
 
   const handleDeleteCalc = async (id) => {
@@ -280,6 +283,7 @@ export default function App() {
     if (useSupabase && leadId) {
       try { await submitContactRequest(leadId, requestData); } catch (e) { console.log("Contact request failed:", e); }
     }
+    trackEvent('contact_request', { interest: requestData.interestLevel, timeline: requestData.timeline });
     return true;
   };
 
@@ -287,6 +291,8 @@ export default function App() {
     setLead(null); setLeadId(null); setSavedCalcs([]); setPage("landing");
     localStorage.removeItem(LS_KEY);
   };
+
+  useEffect(() => { if (page !== 'admin') trackPageview(`/${page}`); }, [page]);
 
   if (loading) return (
     <div style={{ background: T.navy, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>

@@ -15,6 +15,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+// Valid app groups
+const VALID_GROUPS = ["translator", "fintutto"];
+
 // Hostname → Projektname Mapping
 const HOSTNAME_MAP: Record<string, string> = {
   // Translator
@@ -96,7 +99,7 @@ serve(async (req: Request) => {
     const url = new URL(req.url);
     const group = url.searchParams.get("group");
 
-    if (!group || !["translator", "fintutto"].includes(group)) {
+    if (!group || !VALID_GROUPS.includes(group)) {
       return new Response(
         JSON.stringify({
           error: "Invalid group. Use ?group=translator or ?group=fintutto",
@@ -110,16 +113,16 @@ serve(async (req: Request) => {
 
     const rawBody = await req.text();
 
-    // Signatur prüfen
+    // Signatur prüfen (nur wenn Header vorhanden = Vercel Drain)
     const signature = req.headers.get("x-vercel-signature");
-    if (!(await verifySignature(rawBody, signature))) {
+    if (signature && !(await verifySignature(rawBody, signature))) {
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Events parsen (JSON oder NDJSON)
+    // Events parsen (JSON, NDJSON, oder sendBeacon text/plain)
     let events: Record<string, unknown>[];
     try {
       const parsed = JSON.parse(rawBody);
