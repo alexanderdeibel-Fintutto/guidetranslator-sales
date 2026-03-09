@@ -291,6 +291,7 @@ function AdminDashboard({ onBack }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(null); // leadId or null
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState(null);
 
   // Load all leads with calculation counts
   useEffect(() => {
@@ -317,8 +318,19 @@ function AdminDashboard({ onBack }) {
         console.log("Failed to load leads:", e);
       }
       setLoading(false);
+      setLastRefresh(new Date());
     })();
   }, [refreshKey]);
+
+  // ─── Supabase Realtime: auto-refresh on DB changes ───
+  useEffect(() => {
+    const channel = supabase.channel('admin-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_leads' }, () => setRefreshKey(k => k + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_calculations' }, () => setRefreshKey(k => k + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_contact_requests' }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const refresh = () => setRefreshKey(k => k + 1);
 
@@ -362,6 +374,11 @@ function AdminDashboard({ onBack }) {
               fontFamily: fontSans, fontSize: 13, fontWeight: 500,
             }}>{t.label}{t.count != null ? ` (${t.count})` : ""}</button>
           ))}
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.green, padding: "4px 10px", background: `${T.green}10`, borderRadius: 6, border: `1px solid ${T.green}25` }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.green, display: "inline-block", animation: "pulse 2s infinite" }} />
+            LIVE
+          </span>
+          {lastRefresh && <span style={{ fontSize: 10, color: T.gray }}>{lastRefresh.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
           <button onClick={refresh} style={{ background: T.navyMid, border: "none", color: T.grayLight, padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>↻</button>
           <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${T.navyMid}`, color: T.grayLight, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, marginLeft: 8 }}>← App</button>
         </div>
@@ -762,22 +779,33 @@ function ContactDetail({ lead, onBack }) {
   const [noteType, setNoteType] = useState("note");
   const [savingNote, setSavingNote] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [calcRes, reqRes, noteRes] = await Promise.all([
-          supabase.from('gt_calculations').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-          supabase.from('gt_contact_requests').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-          supabase.from('gt_lead_notes').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-        ]);
-        setCalcs(calcRes.data || []);
-        setRequests(reqRes.data || []);
-        setNotes(noteRes.data || []);
-      } catch (e) { console.log("Failed to load detail:", e); }
-      setLoading(false);
-    })();
+  const loadDetail = useCallback(async () => {
+    try {
+      const [calcRes, reqRes, noteRes] = await Promise.all([
+        supabase.from('gt_calculations').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+        supabase.from('gt_contact_requests').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+        supabase.from('gt_lead_notes').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+      ]);
+      setCalcs(calcRes.data || []);
+      setRequests(reqRes.data || []);
+      setNotes(noteRes.data || []);
+    } catch (e) { console.log("Failed to load detail:", e); }
   }, [lead.id]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadDetail().then(() => setLoading(false));
+  }, [loadDetail]);
+
+  // Realtime: auto-refresh when calcs/requests/notes change for this lead
+  useEffect(() => {
+    const channel = supabase.channel(`detail-${lead.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_calculations', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_contact_requests', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_lead_notes', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [lead.id, loadDetail]);
 
   const inviteLink = lead.invite_token ? `${getAppUrl()}/?invite=${lead.invite_token}` : null;
 
@@ -1427,6 +1455,8 @@ function AnalyticsPanel() {
   const [range, setRange] = useState("7d");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
   const rangeOptions = [
     { id: "today", label: "Heute" },
@@ -1434,9 +1464,17 @@ function AnalyticsPanel() {
     { id: "30d", label: "30 Tage" },
   ];
 
+  // Realtime subscription for new analytics events
+  useEffect(() => {
+    const channel = supabase.channel('analytics-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'analytics_pageviews' }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   useEffect(() => {
     (async () => {
-      setLoading(true);
+      if (!data) setLoading(true);
       try {
         const now = new Date();
         let since;
@@ -1457,13 +1495,14 @@ function AnalyticsPanel() {
 
         if (error) throw error;
         setData(rows || []);
+        setLastUpdate(new Date());
       } catch (e) {
         console.log("Analytics load failed:", e);
         setData([]);
       }
       setLoading(false);
     })();
-  }, [range]);
+  }, [range, refreshKey]);
 
   if (loading) return <div style={{ textAlign: "center", padding: 80, color: T.grayLight }}>Lade Analytics...</div>;
   if (!data || data.length === 0) return (
@@ -1516,8 +1555,8 @@ function AnalyticsPanel() {
 
   return (
     <div>
-      {/* Range Picker */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+      {/* Range Picker + Live Status */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 24, alignItems: "center" }}>
         {rangeOptions.map(r => (
           <button key={r.id} onClick={() => setRange(r.id)} style={{
             padding: "8px 18px", borderRadius: 8, cursor: "pointer",
@@ -1526,6 +1565,10 @@ function AnalyticsPanel() {
             color: range === r.id ? T.gold : T.grayLight, fontSize: 13, fontWeight: 500,
           }}>{r.label}</button>
         ))}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {lastUpdate && <span style={{ fontSize: 11, color: T.gray }}>Aktualisiert {lastUpdate.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
+          <button onClick={() => setRefreshKey(k => k + 1)} style={{ background: T.navyMid, border: "none", color: T.grayLight, padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>↻</button>
+        </div>
       </div>
 
       {/* Stat Cards */}
