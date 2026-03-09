@@ -19,17 +19,17 @@ const corsHeaders = {
 const HOSTNAME_MAP: Record<string, string> = {
   // Translator
   "app.guidetranslator.com": "guidetranslator",
-  "sales.guidinggroup.com": "guidetranslator-sales",
-  "sales.translator.fintutto.cloud": "guidetranslator-sales",
-  "translator.fintutto.cloud": "translator",
+  "sales.guidinggroup.com": "gt_salesmaschine",
+  "sales.translator.fintutto.cloud": "gt_salesmaschine",
+  "translator.fintutto.cloud": "translator.consumer",
 
   // Fintutto
   "fintutto.cloud": "cloud",
   "www.fintutto.cloud": "cloud",
-  "app.fintutto.cloud": "fintutto-compass",
+  "app.fintutto.cloud": "fintutto",
   "commander.fintutto.cloud": "command-center",
-  "hausmeisterpro.fintutto.cloud": "hausmeisterPro",
-  "luggagex.fintutto.cloud": "luggageX",
+  "hausmeisterpro.fintutto.cloud": "hausmeister-pro",
+  "luggagex.fintutto.cloud": "luggagex",
   "fitness.fintutto.cloud": "personaltrainer",
   "portal.fintutto.cloud": "portal",
   "vermietify.fintutto.cloud": "vermietify",
@@ -38,6 +38,11 @@ const HOSTNAME_MAP: Record<string, string> = {
   "admin.fintutto.cloud": "admin",
   "app.bescheidboxer.de": "bescheidboxer",
   "mieter.fintutto.de": "mieter",
+  "biz.fintutto.cloud": "biz",
+  "secondbrain.fintutto.cloud": "secondbrain",
+  "ai-guide.fintutto.cloud": "ai-guide",
+  "lern.fintutto.cloud": "lern-app",
+  "finance.fintutto.cloud": "finance-coach",
 };
 
 // HMAC-SHA256 Signatur verifizieren

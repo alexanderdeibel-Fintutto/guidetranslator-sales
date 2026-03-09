@@ -30,25 +30,36 @@ FINTUTTO_ENDPOINT="${SUPABASE_FUNCTIONS_URL}/analytics-ingest?group=fintutto"
 
 # --- Translator Projekte ---
 TRANSLATOR_PROJECTS=(
-  "translator"
-  "guidetranslator-sales"
+  "guidetranslator"
+  "gt_salesmaschine"
+  "translator.enterprice"
+  "translator.consumer"
+  "translator.landing"
+  "guidetranslator.listener"
 )
 
 # --- Fintutto Projekte ---
 FINTUTTO_PROJECTS=(
   "cloud"
-  "fintutto-command-center"
-  "hausmeisterPro"
-  "luggageX"
-  "Personaltrainer"
+  "command-center"
+  "hausmeister-pro"
+  "luggagex"
+  "personaltrainer"
   "portal"
-  "vermietify_final"
+  "vermietify"
   "zimmerpflanze"
-  "fintutto-your-financial-compass"
+  "fintutto"
+  "finance-coach"
+  "finance-mentor"
   "ablesung"
   "admin"
   "bescheidboxer"
   "mieter"
+  "secondbrain"
+  "biz"
+  "ai-guide"
+  "lern-app"
+  "fintutto-portal"
 )
 
 # Farben
