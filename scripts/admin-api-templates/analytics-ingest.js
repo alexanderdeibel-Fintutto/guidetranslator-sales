@@ -54,15 +54,23 @@ function verifySignature(body, signature) {
   const secret = process.env.DRAIN_SECRET;
   if (!secret) return true; // Skip wenn kein Secret konfiguriert
 
+  // Return false if signature is missing or empty
+  if (!signature) return false;
+
   const expected = crypto
     .createHmac("sha256", secret)
     .update(body)
     .digest("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature || ""),
-    Buffer.from(expected)
-  );
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+
+  // Return false if buffers have different lengths (prevents RangeError in timingSafeEqual)
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 }
 
 export async function POST(request, { params }) {
