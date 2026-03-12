@@ -1489,6 +1489,7 @@ function AnalyticsPanel() {
         const { data: rows, error } = await supabase
           .from("analytics_pageviews")
           .select("path, event_name, event_data, device, browser, os, country, timestamp")
+          .eq("app_group", "fintutto")
           .gte("timestamp", since)
           .order("timestamp", { ascending: false })
           .limit(5000);
@@ -1514,12 +1515,14 @@ function AnalyticsPanel() {
   );
 
   // ─── Aggregate stats ───
-  const totalPageviews = data.filter(r => r.event_name === "pageview").length;
+  const pageviewRows = data.filter(r => r.event_name === "pageview");
+  const totalPageviews = pageviewRows.length;
   const totalEvents = data.filter(r => r.event_name !== "pageview").length;
+  const uniqueVisitors = new Set(pageviewRows.map(r => `${r.country || ''}|${r.device || ''}|${r.browser || ''}`)).size;
 
   // Top pages
   const pageCounts = {};
-  data.filter(r => r.event_name === "pageview").forEach(r => { pageCounts[r.path] = (pageCounts[r.path] || 0) + 1; });
+  pageviewRows.forEach(r => { pageCounts[r.path] = (pageCounts[r.path] || 0) + 1; });
   const topPages = Object.entries(pageCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
   // Custom events breakdown
@@ -1543,7 +1546,7 @@ function AnalyticsPanel() {
 
   // Daily trend
   const dailyCounts = {};
-  data.filter(r => r.event_name === "pageview").forEach(r => {
+  pageviewRows.forEach(r => {
     const day = r.timestamp.slice(0, 10);
     dailyCounts[day] = (dailyCounts[day] || 0) + 1;
   });
@@ -1575,6 +1578,7 @@ function AnalyticsPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 24 }}>
         {[
           { label: "Pageviews", value: totalPageviews, color: T.gold },
+          { label: "Besucher (est.)", value: uniqueVisitors, color: T.whiteTrue },
           { label: "Events", value: totalEvents, color: T.seaLight },
           { label: "Desktop", value: deviceCounts.desktop || 0, color: T.goldLight },
           { label: "Mobile", value: deviceCounts.mobile || 0, color: T.sea },
