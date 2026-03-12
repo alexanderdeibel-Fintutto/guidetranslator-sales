@@ -291,6 +291,7 @@ function AdminDashboard({ onBack }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(null); // leadId or null
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState(null);
 
   // Load all leads with calculation counts
   useEffect(() => {
@@ -317,14 +318,26 @@ function AdminDashboard({ onBack }) {
         console.log("Failed to load leads:", e);
       }
       setLoading(false);
+      setLastRefresh(new Date());
     })();
   }, [refreshKey]);
+
+  // ─── Supabase Realtime: auto-refresh on DB changes ───
+  useEffect(() => {
+    const channel = supabase.channel('admin-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_leads' }, () => setRefreshKey(k => k + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_calculations' }, () => setRefreshKey(k => k + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_contact_requests' }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const refresh = () => setRefreshKey(k => k + 1);
 
   const tabs = [
     { id: "contacts", label: "Kontakte", count: leads.length },
     { id: "activity", label: "Aktivität" },
+    { id: "analytics", label: "Analytics" },
   ];
 
   return (
@@ -361,6 +374,11 @@ function AdminDashboard({ onBack }) {
               fontFamily: fontSans, fontSize: 13, fontWeight: 500,
             }}>{t.label}{t.count != null ? ` (${t.count})` : ""}</button>
           ))}
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.green, padding: "4px 10px", background: `${T.green}10`, borderRadius: 6, border: `1px solid ${T.green}25` }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.green, display: "inline-block", animation: "pulse 2s infinite" }} />
+            LIVE
+          </span>
+          {lastRefresh && <span style={{ fontSize: 10, color: T.gray }}>{lastRefresh.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
           <button onClick={refresh} style={{ background: T.navyMid, border: "none", color: T.grayLight, padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>↻</button>
           <button onClick={onBack} style={{ background: "transparent", border: `1px solid ${T.navyMid}`, color: T.grayLight, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, marginLeft: 8 }}>← App</button>
         </div>
@@ -427,6 +445,9 @@ function AdminDashboard({ onBack }) {
             )}
             {tab === "activity" && (
               <ActivityLog leads={leads} onSelect={setSelectedLead} />
+            )}
+            {tab === "analytics" && (
+              <AnalyticsPanel />
             )}
             {showEmailModal && (
               <EmailModal lead={leads.find(l => l.id === showEmailModal)} onClose={() => setShowEmailModal(null)} refresh={refresh} />
@@ -758,22 +779,33 @@ function ContactDetail({ lead, onBack }) {
   const [noteType, setNoteType] = useState("note");
   const [savingNote, setSavingNote] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [calcRes, reqRes, noteRes] = await Promise.all([
-          supabase.from('gt_calculations').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-          supabase.from('gt_contact_requests').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-          supabase.from('gt_lead_notes').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
-        ]);
-        setCalcs(calcRes.data || []);
-        setRequests(reqRes.data || []);
-        setNotes(noteRes.data || []);
-      } catch (e) { console.log("Failed to load detail:", e); }
-      setLoading(false);
-    })();
+  const loadDetail = useCallback(async () => {
+    try {
+      const [calcRes, reqRes, noteRes] = await Promise.all([
+        supabase.from('gt_calculations').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+        supabase.from('gt_contact_requests').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+        supabase.from('gt_lead_notes').select('*').eq('lead_id', lead.id).order('created_at', { ascending: false }),
+      ]);
+      setCalcs(calcRes.data || []);
+      setRequests(reqRes.data || []);
+      setNotes(noteRes.data || []);
+    } catch (e) { console.log("Failed to load detail:", e); }
   }, [lead.id]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadDetail().then(() => setLoading(false));
+  }, [loadDetail]);
+
+  // Realtime: auto-refresh when calcs/requests/notes change for this lead
+  useEffect(() => {
+    const channel = supabase.channel(`detail-${lead.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_calculations', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_contact_requests', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gt_lead_notes', filter: `lead_id=eq.${lead.id}` }, () => loadDetail())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [lead.id, loadDetail]);
 
   const inviteLink = lead.invite_token ? `${getAppUrl()}/?invite=${lead.invite_token}` : null;
 
@@ -1410,6 +1442,257 @@ function EmailModal({ lead, onClose, refresh }) {
             fontSize: 14, fontWeight: 700, cursor: sending || sendResult?.success ? "default" : "pointer",
             opacity: sending ? 0.6 : 1,
           }}>{sending ? "Wird gesendet..." : sendResult?.success ? "✓ Versendet" : "Direkt senden"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ANALYTICS PANEL
+// ═══════════════════════════════════════════════════════════════
+function AnalyticsPanel() {
+  const [range, setRange] = useState("7d");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const rangeOptions = [
+    { id: "today", label: "Heute" },
+    { id: "7d", label: "7 Tage" },
+    { id: "30d", label: "30 Tage" },
+  ];
+
+  // Realtime subscription for new analytics events
+  useEffect(() => {
+    const channel = supabase.channel('analytics-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'analytics_pageviews' }, () => setRefreshKey(k => k + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (!data) setLoading(true);
+      try {
+        const now = new Date();
+        let since;
+        if (range === "today") {
+          since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        } else if (range === "7d") {
+          since = new Date(now - 7 * 86400000).toISOString();
+        } else {
+          since = new Date(now - 30 * 86400000).toISOString();
+        }
+
+        const { data: rows, error } = await supabase
+          .from("analytics_pageviews")
+          .select("path, event_name, event_data, device, browser, os, country, timestamp")
+          .eq("app_group", "fintutto")
+          .gte("timestamp", since)
+          .order("timestamp", { ascending: false })
+          .limit(5000);
+
+        if (error) throw error;
+        setData(rows || []);
+        setLastUpdate(new Date());
+      } catch (e) {
+        console.log("Analytics load failed:", e);
+        setData([]);
+      }
+      setLoading(false);
+    })();
+  }, [range, refreshKey]);
+
+  if (loading) return <div style={{ textAlign: "center", padding: 80, color: T.grayLight }}>Lade Analytics...</div>;
+  if (!data || data.length === 0) return (
+    <div style={{ textAlign: "center", padding: 80 }}>
+      <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>📊</div>
+      <div style={{ color: T.grayLight, fontSize: 16, marginBottom: 8 }}>Noch keine Analytics-Daten</div>
+      <div style={{ color: T.gray, fontSize: 13 }}>Daten erscheinen, sobald Besucher die App nutzen.</div>
+    </div>
+  );
+
+  // ─── Aggregate stats ───
+  const pageviewRows = data.filter(r => r.event_name === "pageview");
+  const totalPageviews = pageviewRows.length;
+  const totalEvents = data.filter(r => r.event_name !== "pageview").length;
+  const uniqueVisitors = new Set(pageviewRows.map(r => `${r.country || ''}|${r.device || ''}|${r.browser || ''}`)).size;
+
+  // Top pages
+  const pageCounts = {};
+  pageviewRows.forEach(r => { pageCounts[r.path] = (pageCounts[r.path] || 0) + 1; });
+  const topPages = Object.entries(pageCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Custom events breakdown
+  const eventCounts = {};
+  data.filter(r => r.event_name !== "pageview").forEach(r => { eventCounts[r.event_name] = (eventCounts[r.event_name] || 0) + 1; });
+  const topEvents = Object.entries(eventCounts).sort((a, b) => b[1] - a[1]);
+
+  // Devices
+  const deviceCounts = {};
+  data.forEach(r => { if (r.device) deviceCounts[r.device] = (deviceCounts[r.device] || 0) + 1; });
+
+  // Browsers
+  const browserCounts = {};
+  data.forEach(r => { if (r.browser) browserCounts[r.browser] = (browserCounts[r.browser] || 0) + 1; });
+  const topBrowsers = Object.entries(browserCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Countries
+  const countryCounts = {};
+  data.forEach(r => { if (r.country) countryCounts[r.country] = (countryCounts[r.country] || 0) + 1; });
+  const topCountries = Object.entries(countryCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // Daily trend
+  const dailyCounts = {};
+  pageviewRows.forEach(r => {
+    const day = r.timestamp.slice(0, 10);
+    dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+  });
+  const dailyTrend = Object.entries(dailyCounts).sort((a, b) => a[0].localeCompare(b[0]));
+  const maxDaily = Math.max(...dailyTrend.map(d => d[1]), 1);
+
+  const cardStyle = { background: T.navyLight, borderRadius: 12, padding: "16px 20px", border: `1px solid ${T.navyMid}` };
+  const labelStyle = { fontSize: 11, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 };
+
+  return (
+    <div>
+      {/* Range Picker + Live Status */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 24, alignItems: "center" }}>
+        {rangeOptions.map(r => (
+          <button key={r.id} onClick={() => setRange(r.id)} style={{
+            padding: "8px 18px", borderRadius: 8, cursor: "pointer",
+            background: range === r.id ? `${T.gold}20` : T.navyMid,
+            border: range === r.id ? `1px solid ${T.gold}50` : `1px solid transparent`,
+            color: range === r.id ? T.gold : T.grayLight, fontSize: 13, fontWeight: 500,
+          }}>{r.label}</button>
+        ))}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {lastUpdate && <span style={{ fontSize: 11, color: T.gray }}>Aktualisiert {lastUpdate.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
+          <button onClick={() => setRefreshKey(k => k + 1)} style={{ background: T.navyMid, border: "none", color: T.grayLight, padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>↻</button>
+        </div>
+      </div>
+
+      {/* Stat Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 24 }}>
+        {[
+          { label: "Pageviews", value: totalPageviews, color: T.gold },
+          { label: "Besucher (est.)", value: uniqueVisitors, color: T.whiteTrue },
+          { label: "Events", value: totalEvents, color: T.seaLight },
+          { label: "Desktop", value: deviceCounts.desktop || 0, color: T.goldLight },
+          { label: "Mobile", value: deviceCounts.mobile || 0, color: T.sea },
+          { label: "Länder", value: Object.keys(countryCounts).length, color: T.green },
+        ].map((s, i) => (
+          <div key={i} style={cardStyle}>
+            <div style={{ fontSize: 11, color: T.grayLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontFamily: font, fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Daily Trend Bar Chart */}
+      {dailyTrend.length > 1 && (
+        <div style={{ ...cardStyle, marginBottom: 24 }}>
+          <div style={labelStyle}>Pageviews pro Tag</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 120 }}>
+            {dailyTrend.map(([day, count]) => (
+              <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <span style={{ fontSize: 10, color: T.grayLight }}>{count}</span>
+                <div style={{
+                  width: "100%", maxWidth: 40,
+                  height: `${Math.max((count / maxDaily) * 100, 4)}%`,
+                  background: `linear-gradient(to top, ${T.gold}80, ${T.gold})`,
+                  borderRadius: "4px 4px 0 0",
+                  minHeight: 4,
+                }} title={`${day}: ${count} views`} />
+                <span style={{ fontSize: 9, color: T.gray, whiteSpace: "nowrap" }}>{day.slice(5)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        {/* Top Pages */}
+        <div style={cardStyle}>
+          <div style={labelStyle}>Top Seiten</div>
+          {topPages.map(([path, count], i) => (
+            <div key={path} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < topPages.length - 1 ? `1px solid ${T.navyMid}` : "none" }}>
+              <span style={{ fontSize: 13, color: T.whiteTrue, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{path}</span>
+              <span style={{ fontSize: 13, color: T.gold, fontWeight: 600 }}>{count}</span>
+            </div>
+          ))}
+          {topPages.length === 0 && <div style={{ fontSize: 13, color: T.gray }}>Keine Daten</div>}
+        </div>
+
+        {/* Custom Events */}
+        <div style={cardStyle}>
+          <div style={labelStyle}>Events</div>
+          {topEvents.map(([name, count], i) => (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < topEvents.length - 1 ? `1px solid ${T.navyMid}` : "none" }}>
+              <span style={{ fontSize: 13, color: T.whiteTrue }}>{name}</span>
+              <span style={{ fontSize: 13, color: T.seaLight, fontWeight: 600 }}>{count}</span>
+            </div>
+          ))}
+          {topEvents.length === 0 && <div style={{ fontSize: 13, color: T.gray }}>Keine Custom Events</div>}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        {/* Browsers */}
+        <div style={cardStyle}>
+          <div style={labelStyle}>Browser</div>
+          {topBrowsers.map(([name, count]) => {
+            const pct = Math.round((count / data.length) * 100);
+            return (
+              <div key={name} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: T.whiteTrue }}>{name}</span>
+                  <span style={{ color: T.grayLight }}>{pct}%</span>
+                </div>
+                <div style={{ height: 6, background: T.navyMid, borderRadius: 3 }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: T.seaLight, borderRadius: 3 }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Countries */}
+        <div style={cardStyle}>
+          <div style={labelStyle}>Länder</div>
+          {topCountries.map(([name, count], i) => (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < topCountries.length - 1 ? `1px solid ${T.navyMid}` : "none" }}>
+              <span style={{ fontSize: 13, color: T.whiteTrue }}>{name}</span>
+              <span style={{ fontSize: 13, color: T.goldLight, fontWeight: 600 }}>{count}</span>
+            </div>
+          ))}
+          {topCountries.length === 0 && <div style={{ fontSize: 13, color: T.gray }}>Keine Geo-Daten</div>}
+        </div>
+      </div>
+
+      {/* Recent Events Log */}
+      <div style={cardStyle}>
+        <div style={labelStyle}>Letzte Aktivitäten</div>
+        <div style={{ maxHeight: 300, overflow: "auto" }}>
+          {data.slice(0, 50).map((r, i) => (
+            <div key={i} style={{
+              display: "flex", gap: 12, alignItems: "center", padding: "8px 0",
+              borderBottom: i < Math.min(data.length, 50) - 1 ? `1px solid ${T.navyMid}` : "none",
+            }}>
+              <span style={{
+                fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
+                background: r.event_name === "pageview" ? `${T.gold}15` : `${T.seaLight}15`,
+                color: r.event_name === "pageview" ? T.gold : T.seaLight,
+                whiteSpace: "nowrap",
+              }}>{r.event_name}</span>
+              <span style={{ fontSize: 13, color: T.whiteTrue, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.path}</span>
+              <span style={{ fontSize: 11, color: T.gray, whiteSpace: "nowrap" }}>{r.device}</span>
+              <span style={{ fontSize: 11, color: T.gray, whiteSpace: "nowrap" }}>{r.country || ""}</span>
+              <span style={{ fontSize: 11, color: T.gray, whiteSpace: "nowrap" }}>{new Date(r.timestamp).toLocaleString("de-DE", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
